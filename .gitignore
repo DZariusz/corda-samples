@@ -9,3 +9,7 @@
 **/logs/
 corda-nodeinfo/corda-nodeinfo.iml
 *~*
+
+*.class
+MY-NOTES.md
+

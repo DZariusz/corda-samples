@@ -30,18 +30,32 @@ class IOUContract : Contract {
      * considered valid.
      */
     override fun verify(tx: LedgerTransaction) {
-        val command = tx.commands.requireSingleCommand<Commands.Create>()
-        requireThat {
-            // Generic constraints around the IOU transaction.
-            "No inputs should be consumed when issuing an IOU." using (tx.inputs.isEmpty())
-            "Only one output state should be created." using (tx.outputs.size == 1)
-            val out = tx.outputsOfType<IOUState>().single()
-            "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
-            "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
+        val command = tx.commands.requireSingleCommand<Commands>()
 
-            // IOU-specific constraints.
-            "The IOU's value must be non-negative." using (out.value > 0)
+        when (command.value) {
+            is Commands.Create -> requireThat {
+                // Generic constraints around the IOU transaction.
+                "No inputs should be consumed when issuing an IOU." using (tx.inputs.isEmpty())
+                "Only one output state should be created." using (tx.outputs.size == 1)
+                val out = tx.outputsOfType<IOUState>().single()
+                "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
+                "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
+
+                // IOU-specific constraints.
+                "The IOU's value must be non-negative." using (out.value > 0)
+            }
+            is Commands.Destroy -> requireThat {
+                "There should be one IOU input." using (tx.inputs.size == 1)
+                "There should be no output." using (tx.outputs.isEmpty())
+
+                val inputIOU = tx.inputsOfType<IOUState>().single()
+                "the transaction is signed by the lender" using command.signers.contains(inputIOU.lender.owningKey)
+            }
+            else -> requireThat {
+                "Not supported command" using false
+            }
         }
+
     }
 
     /**
@@ -49,5 +63,6 @@ class IOUContract : Contract {
      */
     interface Commands : CommandData {
         class Create : Commands
+        class Destroy : Commands
     }
 }

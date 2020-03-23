@@ -2,17 +2,17 @@ package com.example.flow
 
 import co.paralleluniverse.fibers.Suspendable
 import com.example.contract.IOUContract
-import com.example.flow.ExampleFlow.Acceptor
-import com.example.flow.ExampleFlow.Initiator
+import com.example.flow.PaybackFlow.Acceptor
+import com.example.flow.PaybackFlow.Initiator
 import com.example.state.IOUState
-import net.corda.core.contracts.Command
-import net.corda.core.contracts.requireThat
+import net.corda.core.contracts.*
+import net.corda.core.crypto.SecureHash
 import net.corda.core.flows.*
-import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
+
 
 /**
  * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
@@ -25,22 +25,14 @@ import net.corda.core.utilities.ProgressTracker.Step
  *
  * All methods called within the [FlowLogic] sub-class need to be annotated with the @Suspendable annotation.
  */
-object ExampleFlow {
+object PaybackFlow {
     @InitiatingFlow
     @StartableByRPC
-    class Initiator(val iouValue: Int,
-                    val borower: Party) : FlowLogic<SignedTransaction>() {
-        /**
-         * The progress tracker checkpoints each stage of the flow and outputs the specified messages when each
-         * checkpoint is reached in the code. See the 'progressTracker.currentStep' expressions within the call() function.
-         */
+    class Initiator(val loanTxId: String) : FlowLogic<SignedTransaction>() {
         companion object {
-            object GENERATING_TRANSACTION : Step("Generating transaction based on new IOU.")
+            object GENERATING_TRANSACTION : Step("Generating transaction based on IOU state.")
             object VERIFYING_TRANSACTION : Step("Verifying contract constraints.")
             object SIGNING_TRANSACTION : Step("Signing transaction with our private key.")
-            object GATHERING_SIGS : Step("Gathering the counterparty's signature.") {
-                override fun childProgressTracker() = CollectSignaturesFlow.tracker()
-            }
 
             object FINALISING_TRANSACTION : Step("Obtaining notary signature and recording transaction.") {
                 override fun childProgressTracker() = FinalityFlow.tracker()
@@ -50,7 +42,6 @@ object ExampleFlow {
                     GENERATING_TRANSACTION,
                     VERIFYING_TRANSACTION,
                     SIGNING_TRANSACTION,
-                    GATHERING_SIGS,
                     FINALISING_TRANSACTION
             )
         }
@@ -68,10 +59,25 @@ object ExampleFlow {
             // Stage 1.
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
-            val iouState = IOUState(iouValue, serviceHub.myInfo.legalIdentities.first(), borower)
-            val txCommand = Command(IOUContract.Commands.Create(), iouState.participants.map { it.owningKey })
+            val txCommand = Command(IOUContract.Commands.Destroy(), ourIdentity.owningKey)
+
+            /* val criteria = QueryCriteria.VaultQueryCriteria(
+                    contractStateTypes = setOf(IOUState::class.java),
+                    status = Vault.StateStatus.UNCONSUMED,
+                    exactParticipants = listOf(ourIdentity, otherParty)
+            ) // */
+
+            //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
+            // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
+
+            val ourStateRef = StateRef(SecureHash.parse(loanTxId), 0)
+            // val (state, ref) = serviceHub.toStateAndRef<ContractState>(ourStateRef)
+            val inputStateAndRef = serviceHub.toStateAndRef<ContractState>(ourStateRef)
+            val inputIouState = inputStateAndRef.state.data as IOUState;
+
+            // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
-                    .addOutputState(iouState, IOUContract.ID)
+                    .addInputState(inputStateAndRef)
                     .addCommand(txCommand)
 
             // Stage 2.
@@ -82,18 +88,22 @@ object ExampleFlow {
             // Stage 3.
             progressTracker.currentStep = SIGNING_TRANSACTION
             // Sign the transaction.
-            val partSignedTx = serviceHub.signInitialTransaction(txBuilder)
+            val signedTx = serviceHub.signInitialTransaction(txBuilder, inputIouState.lender.owningKey)
+
+            /**
+             * I don't think lender sig is required here,
+             * we should be able to payback without it - but idk how to do `FinalityFlow` without it
+             * also, will it update lender vault and spend IUO if lender will nobe be included in flow?
+             */
+
+            // Send the state to the counterparty, and receive it back with their signature.
+            val otherPartySession = initiateFlow(inputIouState.lender)
+            //val fullySignedTx = subFlow(CollectSignaturesFlow(signedTx, setOf(otherPartySession), ExampleFlow.Initiator.Companion.GATHERING_SIGS.childProgressTracker()))
 
             // Stage 4.
-            progressTracker.currentStep = GATHERING_SIGS
-            // Send the state to the counterparty, and receive it back with their signature.
-            val otherPartySession = initiateFlow(borower)
-            val fullySignedTx = subFlow(CollectSignaturesFlow(partSignedTx, setOf(otherPartySession), GATHERING_SIGS.childProgressTracker()))
-
-            // Stage 5.
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(fullySignedTx, setOf(otherPartySession), FINALISING_TRANSACTION.childProgressTracker()))
+            return subFlow(FinalityFlow(signedTx, setOf(otherPartySession), FINALISING_TRANSACTION.childProgressTracker()))
         }
     }
 

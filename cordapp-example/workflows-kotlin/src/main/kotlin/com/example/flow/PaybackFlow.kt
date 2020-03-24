@@ -34,7 +34,7 @@ object PaybackFlow {
     @StartableByRPC
     class Initiator(val inputLinearId: String, val paybackValue: Int) : FlowLogic<SignedTransaction>() {
         companion object {
-            object CREATING_COMMAND : Step("Pull data from vauld and create command.")
+            object CREATING_COMMAND : Step("Pull data from vault and create command.")
             object GENERATING_TRANSACTION : Step("Generating transaction based on IOU state.")
             object VERIFYING_TRANSACTION : Step("Verifying contract constraints.")
             object SIGNING_TRANSACTION : Step("Signing transaction with our private key.")
@@ -43,6 +43,8 @@ object PaybackFlow {
             object GATHERING_SIGS : Step("Gathering the counterparty's signature.") {
                 override fun childProgressTracker() = CollectSignaturesFlow.tracker()
             }
+
+            object PAYBACK_COMMUNICATION : Step("Sending payback value to lender.")
 
             object FINALISING_TRANSACTION : Step("Obtaining notary signature and recording transaction.") {
                 override fun childProgressTracker() = FinalityFlow.tracker()
@@ -55,6 +57,7 @@ object PaybackFlow {
                     SIGNING_TRANSACTION,
                     INITIALIZE_OTHER_PARTY_FLOW,
                     GATHERING_SIGS,
+                    PAYBACK_COMMUNICATION,
                     FINALISING_TRANSACTION
             )
         }
@@ -115,7 +118,8 @@ object PaybackFlow {
 
             require(confirmPayback) { "Oops, lender failed to be ready" }
 
-            lenderPartySession.send(paybackValue) // */
+            progressTracker.currentStep = PAYBACK_COMMUNICATION
+            lenderPartySession.send(paybackValue)
 
             progressTracker.currentStep = GATHERING_SIGS
             val fullySignedTx = subFlow(CollectSignaturesFlow(
@@ -134,14 +138,17 @@ object PaybackFlow {
     class Acceptor(val borrowerPartySession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
+            borrowerPartySession.receive<String>().unwrap { it }
             //send confirmation about being ready to receive payback
             borrowerPartySession.send(true)
 
+            val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
+
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
                     val stateAndRef = serviceHub.toStateAndRef<ContractState>(stx.tx.inputs[0])
                     val expectedAmount = (stateAndRef.state.data as IOUState).value
+
                     "Payback value differ from borrowed amount." using (receivedPayback == expectedAmount) // */
                 }
             }

@@ -49,13 +49,14 @@ class IOUContract : Contract {
                 "There should be no output." using (tx.outputs.isEmpty())
 
                 val inputIOU = tx.inputsOfType<IOUState>().single()
-                "the transaction is signed by the lender" using command.signers.contains(inputIOU.lender.owningKey)
+
+                "Expect two signers." using (command.signers.size == 2)
+                "All participants must be signers." using (command.signers.containsAll(inputIOU.participants.map { it.owningKey }))
             }
             else -> requireThat {
                 "Not supported command" using false
             }
         }
-
     }
 
     /**

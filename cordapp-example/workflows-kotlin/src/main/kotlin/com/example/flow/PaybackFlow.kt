@@ -5,14 +5,18 @@ import com.example.contract.IOUContract
 import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.IOUState
-import net.corda.core.contracts.*
-import net.corda.core.crypto.SecureHash
+import net.corda.core.contracts.Command
+import net.corda.core.contracts.ContractState
+import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
+import net.corda.core.node.services.vault.QueryCriteria
+import net.corda.core.node.services.vault.QueryCriteria.LinearStateQueryCriteria
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
-
+import net.corda.core.utilities.unwrap
+import java.util.*
 
 /**
  * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
@@ -28,20 +32,29 @@ import net.corda.core.utilities.ProgressTracker.Step
 object PaybackFlow {
     @InitiatingFlow
     @StartableByRPC
-    class Initiator(val loanTxId: String) : FlowLogic<SignedTransaction>() {
+    class Initiator(val inputLinearId: String, val paybackValue: Int) : FlowLogic<SignedTransaction>() {
         companion object {
+            object CREATING_COMMAND : Step("Pull data from vauld and create command.")
             object GENERATING_TRANSACTION : Step("Generating transaction based on IOU state.")
             object VERIFYING_TRANSACTION : Step("Verifying contract constraints.")
             object SIGNING_TRANSACTION : Step("Signing transaction with our private key.")
+            object INITIALIZE_OTHER_PARTY_FLOW : Step("Send the state to the counterparty, and receive it back with their signature")
+
+            object GATHERING_SIGS : Step("Gathering the counterparty's signature.") {
+                override fun childProgressTracker() = CollectSignaturesFlow.tracker()
+            }
 
             object FINALISING_TRANSACTION : Step("Obtaining notary signature and recording transaction.") {
                 override fun childProgressTracker() = FinalityFlow.tracker()
             }
 
             fun tracker() = ProgressTracker(
+                    CREATING_COMMAND,
                     GENERATING_TRANSACTION,
                     VERIFYING_TRANSACTION,
                     SIGNING_TRANSACTION,
+                    INITIALIZE_OTHER_PARTY_FLOW,
+                    GATHERING_SIGS,
                     FINALISING_TRANSACTION
             )
         }
@@ -53,13 +66,9 @@ object PaybackFlow {
          */
         @Suspendable
         override fun call(): SignedTransaction {
-            // Obtain a reference to the notary we want to use.
-            val notary = serviceHub.networkMapCache.notaryIdentities[0]
-
-            // Stage 1.
-            progressTracker.currentStep = GENERATING_TRANSACTION
-            // Generate an unsigned transaction.
-            val txCommand = Command(IOUContract.Commands.Destroy(), ourIdentity.owningKey)
+            progressTracker.currentStep = CREATING_COMMAND
+            //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
+            // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
             /* val criteria = QueryCriteria.VaultQueryCriteria(
                     contractStateTypes = setOf(IOUState::class.java),
@@ -67,62 +76,78 @@ object PaybackFlow {
                     exactParticipants = listOf(ourIdentity, otherParty)
             ) // */
 
-            //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
-            // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
+            val uuid: UUID = UUID.fromString(inputLinearId)
+            val queryCriteria: QueryCriteria = LinearStateQueryCriteria().withUuid(Collections.singletonList(uuid))
 
-            val ourStateRef = StateRef(SecureHash.parse(loanTxId), 0)
+            val results = serviceHub.vaultService.queryBy(IOUState::class.java, queryCriteria)
+            // val ourStateRef = StateRef(SecureHash.parse(loanTxId), 0)
             // val (state, ref) = serviceHub.toStateAndRef<ContractState>(ourStateRef)
-            val inputStateAndRef = serviceHub.toStateAndRef<ContractState>(ourStateRef)
-            val inputIouState = inputStateAndRef.state.data as IOUState;
+            val inputStateAndRef = serviceHub.toStateAndRef<ContractState>(results.states[0].ref)
+            val inputIOUState = inputStateAndRef.state.data as IOUState
+
+            progressTracker.currentStep = GENERATING_TRANSACTION
+            // Generate an unsigned transaction.
+            val txCommand = Command(IOUContract.Commands.Destroy(), inputIOUState.participants.map { it.owningKey })
+
+            // Obtain a reference to the notary that was in use for input state
+            val notary = results.states[0].state.notary
 
             // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
                     .addInputState(inputStateAndRef)
                     .addCommand(txCommand)
 
-            // Stage 2.
             progressTracker.currentStep = VERIFYING_TRANSACTION
             // Verify that the transaction is valid.
             txBuilder.verify(serviceHub)
 
-            // Stage 3.
             progressTracker.currentStep = SIGNING_TRANSACTION
-            // Sign the transaction.
-            val signedTx = serviceHub.signInitialTransaction(txBuilder, inputIouState.lender.owningKey)
+            // Sign the transaction (must be by a borrower)
+            val signedTx = serviceHub.signInitialTransaction(txBuilder)
 
-            /**
-             * I don't think lender sig is required here,
-             * we should be able to payback without it - but idk how to do `FinalityFlow` without it
-             * also, will it update lender vault and spend IUO if lender will nobe be included in flow?
-             */
-
+            progressTracker.currentStep = INITIALIZE_OTHER_PARTY_FLOW
             // Send the state to the counterparty, and receive it back with their signature.
-            val otherPartySession = initiateFlow(inputIouState.lender)
-            //val fullySignedTx = subFlow(CollectSignaturesFlow(signedTx, setOf(otherPartySession), ExampleFlow.Initiator.Companion.GATHERING_SIGS.childProgressTracker()))
+            val lenderPartySession = initiateFlow(inputIOUState.lender)
 
-            // Stage 4.
+            val confirmPayback = lenderPartySession
+                    .sendAndReceive<Boolean>("ready for receiving payback?")
+                    .unwrap { it }
+
+            require(confirmPayback) { "Oops, lender failed to be ready" }
+
+            lenderPartySession.send(paybackValue) // */
+
+            progressTracker.currentStep = GATHERING_SIGS
+            val fullySignedTx = subFlow(CollectSignaturesFlow(
+                    signedTx,
+                    setOf(lenderPartySession),
+                    ExampleFlow.Initiator.Companion.GATHERING_SIGS.childProgressTracker())
+            )
+
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(signedTx, setOf(otherPartySession), FINALISING_TRANSACTION.childProgressTracker()))
+            return subFlow(FinalityFlow(fullySignedTx, setOf(lenderPartySession), FINALISING_TRANSACTION.childProgressTracker()))
         }
     }
 
     @InitiatedBy(Initiator::class)
-    class Acceptor(val otherPartySession: FlowSession) : FlowLogic<SignedTransaction>() {
+    class Acceptor(val borrowerPartySession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
-            val signTransactionFlow = object : SignTransactionFlow(otherPartySession) {
+            //send confirmation about being ready to receive payback
+            borrowerPartySession.send(true)
+
+            val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    // The transaction involves an IOUState - this ensures that IOUContract will be run to verify the transaction
-                    val output = stx.tx.outputs.single().data
-                    "This must be an IOU transaction." using (output is IOUState)
-                    val iou = output as IOUState
-                    "I won't accept IOUs with a value over 100." using (iou.value <= 100)
+                    val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
+                    val stateAndRef = serviceHub.toStateAndRef<ContractState>(stx.tx.inputs[0])
+                    val expectedAmount = (stateAndRef.state.data as IOUState).value
+                    "Payback value differ from borrowed amount." using (receivedPayback == expectedAmount) // */
                 }
             }
             val txId = subFlow(signTransactionFlow).id
 
-            return subFlow(ReceiveFinalityFlow(otherPartySession, expectedTxId = txId))
+            return subFlow(ReceiveFinalityFlow(borrowerPartySession, expectedTxId = txId))
         }
     }
 }

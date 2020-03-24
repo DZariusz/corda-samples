@@ -11,22 +11,42 @@
 I can use simply tx id, and in a code pull the state like so:
 `val ourStateRef = StateRef(SecureHash.parse(txId), 0)`
 
+or better way:
+
+> You can query an IOU by its linearId:
+>
+> ```
+> UUID uuid = UUID.fromString("some Id");
+> QueryCriteria queryCriteria = new QueryCriteria.LinearStateQueryCriteria()
+>                                  .withUuid(Collections.singletonList(uuid));
+>
+> getServiceHub().getVaultService().queryBy(IOUState.class, queryCriteria);
+> ```
+
 > - What notary do you choose?
 
-I will use default notary.  
-But I'm also wondering if there is a way not to use it?
-When borower want to replay, he don't need lender signature. 
-If tx will be valid then he should be able to repay - we talking about situation when we repay 100%.
-
+> Generally you should specify which notary you're going to use when you create new states:
+> ``` 
+>  String notaryName = "O=Notary,L=London,C=GB";
+>  Party notary = getServiceHub().getNetworkMapCache().getNotary(CordaX500Name.parse(notaryName));
+> ```
+>  If you're consuming states (i.e. your transaction has inputs); you should extract the notary from the input state:
+> ```  
+>  StateAndRef<IOUState> txInput;
+>  Party notary = txInput.getState().getNotary();
+> ```
+  
 > - How do you launch from the shell a flow with a known state from the vault?
 
 First on PartyA:
 ```
-flow start ExampleFlow$Initiator iouValue: 50, borower: "O=PartyB,L=New York,C=US"
+flow start ExampleFlow$Initiator iouValue: 50, borrower: "O=PartyB,L=New York,C=US"
 > Flow completed with result: SignedTransaction(id=B8B9D36C87112E1C176F105F5D570FDE61B8AC2453568429C973D18B57B7C5D5)
 ```
 
-then with knownw tx id, on PartyB:
+then on PartyB:
 ```
-`flow start PaybackFlow$Initiator loanTxId: "236F4610D04A993F337B8E261E0E2B649A2AAF45403D12F215EBC5CAA11221BE"`
+run vaultQuery contractStateType: com.example.state.IOUState
+# copy UUID
+`flow start PaybackFlow$Initiator inputLinearId: "08b46ba6-670a-47a2-b77a-ea201cbcad5d"`
 ```

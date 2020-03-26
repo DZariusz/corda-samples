@@ -38,7 +38,7 @@ object PaybackFlow {
             object GENERATING_TRANSACTION : Step("Generating transaction based on IOU state.")
             object VERIFYING_TRANSACTION : Step("Verifying contract constraints.")
             object SIGNING_TRANSACTION : Step("Signing transaction with our private key.")
-            object INITIALIZE_OTHER_PARTY_FLOW : Step("Send the state to the counterparty, and receive it back with their signature")
+            object INITIALISE_OTHER_PARTY_FLOW : Step("Send the state to the counterparty, and receive it back with their signature")
 
             object GATHERING_SIGS : Step("Gathering the counterparty's signature.") {
                 override fun childProgressTracker() = CollectSignaturesFlow.tracker()
@@ -55,7 +55,7 @@ object PaybackFlow {
                     GENERATING_TRANSACTION,
                     VERIFYING_TRANSACTION,
                     SIGNING_TRANSACTION,
-                    INITIALIZE_OTHER_PARTY_FLOW,
+                    INITIALISE_OTHER_PARTY_FLOW,
                     GATHERING_SIGS,
                     PAYBACK_COMMUNICATION,
                     FINALISING_TRANSACTION
@@ -80,17 +80,17 @@ object PaybackFlow {
             ) // */
 
             val uuid: UUID = UUID.fromString(inputLinearId)
-            val queryCriteria: QueryCriteria = LinearStateQueryCriteria().withUuid(Collections.singletonList(uuid))
+            val queryCriteria: QueryCriteria = LinearStateQueryCriteria().withUuid(listOf(uuid))
 
             val results = serviceHub.vaultService.queryBy(IOUState::class.java, queryCriteria)
             // val ourStateRef = StateRef(SecureHash.parse(loanTxId), 0)
             // val (state, ref) = serviceHub.toStateAndRef<ContractState>(ourStateRef)
-            val inputStateAndRef = serviceHub.toStateAndRef<ContractState>(results.states[0].ref)
-            val inputIOUState = inputStateAndRef.state.data as IOUState
+            val inputStateAndRef = serviceHub.toStateAndRef<IOUState>(results.states.single().ref)
+            val iouState = inputStateAndRef.state.data
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
-            val txCommand = Command(IOUContract.Commands.Destroy(), inputIOUState.participants.map { it.owningKey })
+            val txCommand = Command(IOUContract.Commands.Destroy(), iouState.participants.map { it.owningKey })
 
             // Obtain a reference to the notary that was in use for input state
             val notary = results.states[0].state.notary
@@ -106,11 +106,14 @@ object PaybackFlow {
 
             progressTracker.currentStep = SIGNING_TRANSACTION
             // Sign the transaction (must be by a borrower)
+            if (!iouState.borrower.equals(ourIdentity)) {
+                throw IllegalArgumentException("Borrower mst start te flow")
+            }
             val signedTx = serviceHub.signInitialTransaction(txBuilder)
 
-            progressTracker.currentStep = INITIALIZE_OTHER_PARTY_FLOW
+            progressTracker.currentStep = INITIALISE_OTHER_PARTY_FLOW
             // Send the state to the counterparty, and receive it back with their signature.
-            val lenderPartySession = initiateFlow(inputIOUState.lender)
+            val lenderPartySession = initiateFlow(iouState.lender)
 
             val confirmPayback = lenderPartySession
                     .sendAndReceive<Boolean>("ready for receiving payback?")
@@ -125,7 +128,7 @@ object PaybackFlow {
             val fullySignedTx = subFlow(CollectSignaturesFlow(
                     signedTx,
                     setOf(lenderPartySession),
-                    ExampleFlow.Initiator.Companion.GATHERING_SIGS.childProgressTracker())
+                    GATHERING_SIGS.childProgressTracker())
             )
 
             progressTracker.currentStep = FINALISING_TRANSACTION
@@ -146,8 +149,8 @@ object PaybackFlow {
 
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val stateAndRef = serviceHub.toStateAndRef<ContractState>(stx.tx.inputs[0])
-                    val expectedAmount = (stateAndRef.state.data as IOUState).value
+                    val stateAndRef = serviceHub.toStateAndRef<IOUState>(stx.tx.inputs[0])
+                    val expectedAmount = stateAndRef.state.data.value
 
                     "Payback value differ from borrowed amount." using (receivedPayback == expectedAmount) // */
                 }

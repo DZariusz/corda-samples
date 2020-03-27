@@ -35,23 +35,23 @@ class IOUContract : Contract {
         when (command.value) {
             is Commands.Create -> requireThat {
                 // Generic constraints around the IOU transaction.
-                "No inputs should be consumed when issuing an IOU." using (tx.inputs.isEmpty())
-                //Only one output state should be created
+                "No IOUState inputs should be consumed when issuing an IOU." using (tx.inputsOfType<IOUState>().isEmpty())
+                "There should be only one IOUState output." using (tx.outputsOfType<IOUState>().size == 1)
                 val out = tx.outputsOfType<IOUState>().single()
                 "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
+                "Command require two signers." using (command.signers.size == 2)
                 "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
 
                 // IOU-specific constraints.
                 "The IOU's value must be non-negative." using (out.value > 0)
             }
             is Commands.Destroy -> requireThat {
-                "There should be no output." using (tx.outputs.isEmpty())
-
-                // There should be only one IOU input.
+                "There should be no IOUState output." using (tx.outputsOfType<IOUState>().isEmpty())
+                "There should be only one IOUState input." using (tx.inputsOfType<IOUState>().size == 1)
                 val inputIOU = tx.inputsOfType<IOUState>().single()
 
-                "Expect two signers." using (command.signers.size == 2)
-                "All participants must be signers." using (command.signers.containsAll(inputIOU.participants.map { it.owningKey }))
+                "Expect one signer." using (command.signers.size == 1)
+                "Lender must be a signer." using (command.signers.single() == inputIOU.lender.owningKey)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

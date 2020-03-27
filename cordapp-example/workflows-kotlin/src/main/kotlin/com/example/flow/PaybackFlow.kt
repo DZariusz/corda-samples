@@ -6,7 +6,6 @@ import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.IOUState
 import net.corda.core.contracts.Command
-import net.corda.core.contracts.ContractState
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.node.services.vault.QueryCriteria
@@ -107,7 +106,7 @@ object PaybackFlow {
             progressTracker.currentStep = SIGNING_TRANSACTION
             // Sign the transaction (must be by a borrower)
             if (!iouState.borrower.equals(ourIdentity)) {
-                throw IllegalArgumentException("Borrower mst start te flow")
+                throw IllegalArgumentException("Borrower must start the flow")
             }
             val signedTx = serviceHub.signInitialTransaction(txBuilder)
 
@@ -115,6 +114,7 @@ object PaybackFlow {
             // Send the state to the counterparty, and receive it back with their signature.
             val lenderPartySession = initiateFlow(iouState.lender)
 
+            // send/receive part is just for experiment
             val confirmPayback = lenderPartySession
                     .sendAndReceive<Boolean>("ready for receiving payback?")
                     .unwrap { it }
@@ -153,6 +153,7 @@ object PaybackFlow {
                     val expectedAmount = stateAndRef.state.data.value
 
                     "Payback value differ from borrowed amount." using (receivedPayback == expectedAmount) // */
+                    "Lender signature required." using (stateAndRef.state.data.lender.owningKey == ourIdentity.owningKey)
                 }
             }
             val txId = subFlow(signTransactionFlow).id

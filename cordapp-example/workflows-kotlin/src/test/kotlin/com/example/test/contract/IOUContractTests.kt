@@ -27,46 +27,57 @@ class IOUContractTests {
     }
 
     @Test
-    fun `transaction must have no inputs`() {
+    fun `Create - transaction must have no inputs`() {
         ledgerServices.ledger {
             transaction {
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 command(listOf(megaCorp.publicKey, miniCorp.publicKey), IOUContract.Commands.Create())
-                `fails with`("No inputs should be consumed when issuing an IOU.")
+                `fails with`("No IOUState inputs should be consumed when issuing an IOU.")
             }
         }
     }
 
     @Test
-    fun `transaction must have one output`() {
+    fun `Create - transaction must have one output`() {
         ledgerServices.ledger {
             transaction {
                 output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 command(listOf(megaCorp.publicKey, miniCorp.publicKey), IOUContract.Commands.Create())
-                `fails with`("Only one output state should be created.")
+                `fails with`("There should be only one IOUState output.")
             }
         }
     }
 
     @Test
-    fun `lender must sign transaction`() {
+    fun `Create - transaction required two signers`() {
         ledgerServices.ledger {
             transaction {
                 output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 command(miniCorp.publicKey, IOUContract.Commands.Create())
+                `fails with`("Command require two signers.")
+            }
+        }
+    }
+
+    @Test
+    fun `Create - lender must sign transaction`() {
+        ledgerServices.ledger {
+            transaction {
+                output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(listOf(miniCorp.publicKey, miniCorp.publicKey), IOUContract.Commands.Create())
                 `fails with`("All of the participants must be signers.")
             }
         }
     }
 
     @Test
-    fun `borrower must sign transaction`() {
+    fun `Create - borrower must sign transaction`() {
         ledgerServices.ledger {
             transaction {
                 output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                command(megaCorp.publicKey, IOUContract.Commands.Create())
+                command(listOf(megaCorp.publicKey, megaCorp.publicKey), IOUContract.Commands.Create())
                 `fails with`("All of the participants must be signers.")
             }
         }
@@ -90,6 +101,75 @@ class IOUContractTests {
                 output(IOUContract.ID, IOUState(-1, miniCorp.party, megaCorp.party))
                 command(listOf(megaCorp.publicKey, miniCorp.publicKey), IOUContract.Commands.Create())
                 `fails with`("The IOU's value must be non-negative.")
+            }
+        }
+    }
+
+    @Test
+    fun `transaction must include Destroy command`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                fails()
+                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
+                verifies()
+            }
+        }
+    }
+
+    @Test
+    fun `Destroy - transaction must have no IOUState outputs`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(miniCorp.publicKey, IOUContract.Commands.Destroy())
+                `fails with`("There should be no IOUState output.")
+            }
+        }
+    }
+
+    @Test
+    fun `Destroy - transaction must have one IOUState input`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
+                `fails with`("There should be only one IOUState input.")
+            }
+        }
+    }
+
+    @Test
+    fun `Destroy - transaction expects one signer`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(listOf(miniCorp.publicKey, megaCorp.publicKey), IOUContract.Commands.Destroy())
+                `fails with`("Expect one signer.")
+            }
+        }
+    }
+
+    @Test
+    fun `Destroy - lender must sign the transaction`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(listOf(megaCorp.publicKey), IOUContract.Commands.Destroy())
+                `fails with`("Lender must be a signer.")
+            }
+        }
+    }
+
+    @Test
+    fun `Destroy - expect valid transaction`() {
+        ledgerServices.ledger {
+            transaction {
+                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
+                verifies()
             }
         }
     }

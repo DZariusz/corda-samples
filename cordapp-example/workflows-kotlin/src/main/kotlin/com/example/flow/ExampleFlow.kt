@@ -1,9 +1,11 @@
 package com.example.flow
 
 import co.paralleluniverse.fibers.Suspendable
+import com.example.contract.CashContract
 import com.example.contract.IOUContract
 import com.example.flow.ExampleFlow.Acceptor
 import com.example.flow.ExampleFlow.Initiator
+import com.example.state.CashState
 import com.example.state.IOUState
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
@@ -69,9 +71,14 @@ object ExampleFlow {
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
             val iouState = IOUState(iouValue, serviceHub.myInfo.legalIdentities.first(), borrower)
+
+            // just printing some money, so I can payback later
+            val cashState = CashState(iouState.value.toLong(), iouState.borrower);
+
             val txCommand = Command(IOUContract.Commands.Create(), iouState.participants.map { it.owningKey })
             val txBuilder = TransactionBuilder(notary)
                     .addOutputState(iouState, IOUContract.ID)
+                    .addOutputState(cashState, CashContract.ID)
                     .addCommand(txCommand)
 
             // Stage 2.
@@ -104,9 +111,8 @@ object ExampleFlow {
             val signTransactionFlow = object : SignTransactionFlow(otherPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
                     // The transaction involves an IOUState - this ensures that IOUContract will be run to verify the transaction
-                    val output = stx.tx.outputs.single().data
-                    "This must be an IOU transaction." using (output is IOUState)
-                    val iou = output as IOUState
+                    "This must be an IOU transaction." using (stx.tx.outputsOfType<IOUState>().size == 1)
+                    val iou = stx.tx.outputsOfType<IOUState>().single()
                     "I won't accept IOUs with a value over 100." using (iou.value <= 100)
                 }
             }

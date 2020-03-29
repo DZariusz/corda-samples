@@ -1,13 +1,20 @@
 package com.example.flow
 
 import co.paralleluniverse.fibers.Suspendable
+import com.example.contract.CashContract
 import com.example.contract.IOUContract
 import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
+import com.example.state.CashState
 import com.example.state.IOUState
+import net.corda.core.contracts.AutomaticPlaceholderConstraint
 import net.corda.core.contracts.Command
+import net.corda.core.contracts.StateAndRef
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
+import net.corda.core.identity.Party
+import net.corda.core.node.ServiceHub
+import net.corda.core.node.services.Vault
 import net.corda.core.node.services.vault.QueryCriteria
 import net.corda.core.node.services.vault.QueryCriteria.LinearStateQueryCriteria
 import net.corda.core.transactions.SignedTransaction
@@ -29,6 +36,19 @@ import java.util.*
  * All methods called within the [FlowLogic] sub-class need to be annotated with the @Suspendable annotation.
  */
 object PaybackFlow {
+    fun findMoney(serviceHub: ServiceHub, party: Party): StateAndRef<CashState> {
+        // looking for money that should be printed on ExampleFlow
+        // this is not the best way, but I use this way to exercise, I will do better in module 4
+        val criteria = QueryCriteria.VaultQueryCriteria(
+                contractStateTypes = setOf(CashState::class.java),
+                status = Vault.StateStatus.UNCONSUMED,
+                exactParticipants = listOf(party)
+        )
+
+        val results = serviceHub.vaultService.queryBy(IOUState::class.java, criteria)
+        return serviceHub.toStateAndRef<CashState>(results.states.single().ref)
+    }
+
     @InitiatingFlow
     @StartableByRPC
     class Initiator(val inputLinearId: String, val paybackValue: Int) : FlowLogic<SignedTransaction>() {
@@ -72,12 +92,6 @@ object PaybackFlow {
             //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
             // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
-            /* val criteria = QueryCriteria.VaultQueryCriteria(
-                    contractStateTypes = setOf(IOUState::class.java),
-                    status = Vault.StateStatus.UNCONSUMED,
-                    exactParticipants = listOf(ourIdentity, otherParty)
-            ) // */
-
             val uuid: UUID = UUID.fromString(inputLinearId)
             val queryCriteria: QueryCriteria = LinearStateQueryCriteria().withUuid(listOf(uuid))
 
@@ -87,9 +101,14 @@ object PaybackFlow {
             val inputStateAndRef = serviceHub.toStateAndRef<IOUState>(results.states.single().ref)
             val iouState = inputStateAndRef.state.data
 
+            val cashStateAndRef = findMoney(serviceHub, ourIdentity)
+
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
-            val txCommand = Command(IOUContract.Commands.Destroy(), iouState.participants.map { it.owningKey })
+            val destroyIOUCommand = Command(IOUContract.Commands.Destroy(), iouState.lender.owningKey)
+            val (moveCashCommand, cashOutputState) = cashStateAndRef.state.data.withNewOwner(iouState.borrower)
+            //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
+            //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
 
             // Obtain a reference to the notary that was in use for input state
             val notary = results.states[0].state.notary
@@ -97,7 +116,11 @@ object PaybackFlow {
             // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
                     .addInputState(inputStateAndRef)
-                    .addCommand(txCommand)
+                    .addInputState(cashStateAndRef)
+                    .addOutputState(cashOutputState, cashStateAndRef.state.contract, cashStateAndRef.state.notary)
+                    .addCommand(destroyIOUCommand)
+                    //.addCommand(moveMoneyCommand)
+                    .addCommand(moveCashCommand, cashStateAndRef.state.data.owner.owningKey)
 
             progressTracker.currentStep = VERIFYING_TRANSACTION
             // Verify that the transaction is valid.
@@ -145,15 +168,17 @@ object PaybackFlow {
             //send confirmation about being ready to receive payback
             borrowerPartySession.send(true)
 
+            // just exercise
             val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
 
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val stateAndRef = serviceHub.toStateAndRef<IOUState>(stx.tx.inputs[0])
-                    val expectedAmount = stateAndRef.state.data.value
+                    val iouState = serviceHub.toStateAndRef<IOUState>(stx.tx.inputs.first()).state.data
+                    val cashState = serviceHub.toStateAndRef<CashState>(stx.tx.inputs.last()).state.data
 
-                    "Payback value differ from borrowed amount." using (receivedPayback == expectedAmount) // */
-                    "Lender signature required." using (stateAndRef.state.data.lender.owningKey == ourIdentity.owningKey)
+                    "Payback value differ from borrowed amount." using (cashState.balance.compareTo(iouState.value) == 0)
+                    "Lender should own IOU." using (iouState.lender.owningKey == ourIdentity.owningKey)
+                    "Borrower should own payback cash." using (iouState.borrower.owningKey == cashState.owner.owningKey)
                 }
             }
             val txId = subFlow(signTransactionFlow).id

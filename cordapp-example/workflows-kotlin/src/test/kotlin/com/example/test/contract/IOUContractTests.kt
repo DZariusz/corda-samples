@@ -1,6 +1,8 @@
 package com.example.test.contract
 
+import com.example.contract.CashContract
 import com.example.contract.IOUContract
+import com.example.state.CashState
 import com.example.state.IOUState
 import net.corda.core.identity.CordaX500Name
 import net.corda.testing.core.TestIdentity
@@ -106,59 +108,75 @@ class IOUContractTests {
     }
 
     @Test
-    fun `transaction must include Destroy command`() {
+    fun `Destroy - transaction must have two inputs`() {
         ledgerServices.ledger {
             transaction {
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                fails()
-                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
-                verifies()
-            }
-        }
-    }
-
-    @Test
-    fun `Destroy - transaction must have no IOUState outputs`() {
-        ledgerServices.ledger {
-            transaction {
-                input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 command(miniCorp.publicKey, IOUContract.Commands.Destroy())
-                `fails with`("There should be no IOUState output.")
+                `fails with`("There should be two inputs in general.")
             }
         }
     }
 
     @Test
-    fun `Destroy - transaction must have one IOUState input`() {
+    fun `Destroy - There should be one IOUState input`() {
         ledgerServices.ledger {
             transaction {
+                command(miniCorp.publicKey, IOUContract.Commands.Destroy())
+
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
                 `fails with`("There should be only one IOUState input.")
             }
         }
     }
 
+    /*
+        case `There should be only one CashState input` is impossible to test because of
+        two preceding conditions:
+            "There should be two inputs in general." using (tx.inputs.size == 2)
+            "There should be only one IOUState input." using (tx.inputsOfType<IOUState>().size == 1)
+            "There should be only one CashState input." using (tx.inputsOfType<CashState>().size == 1)
+
+     */
+
     @Test
-    fun `Destroy - transaction expects one signer`() {
+    fun `Destroy - testing outputs`() {
         ledgerServices.ledger {
             transaction {
+                command(miniCorp.publicKey, IOUContract.Commands.Destroy())
+                command(megaCorp.publicKey, CashContract.Commands.Move())
+
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                command(listOf(miniCorp.publicKey, megaCorp.publicKey), IOUContract.Commands.Destroy())
-                `fails with`("Expect one signer.")
+                input(CashContract.ID, CashState(iouValue.toLong(), megaCorp.party))
+
+                `fails with`("There should be one output in general.")
+
+                output(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
+                `fails with`("There should be one CashState output.")
             }
         }
     }
 
     @Test
-    fun `Destroy - lender must sign the transaction`() {
+    fun `Destroy - signatures`() {
         ledgerServices.ledger {
             transaction {
+                command(megaCorp.publicKey, CashContract.Commands.Move())
+
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                command(listOf(megaCorp.publicKey), IOUContract.Commands.Destroy())
-                `fails with`("Lender must be a signer.")
+                input(CashContract.ID, CashState(iouValue.toLong(), megaCorp.party))
+                output(CashContract.ID, CashState(iouValue.toLong(), miniCorp.party))
+
+                tweak {
+                    command(listOf(miniCorp.publicKey, megaCorp.publicKey), IOUContract.Commands.Destroy())
+                    `fails with`("Expect one signer.")
+                }
+
+                tweak {
+                    command(megaCorp.publicKey, IOUContract.Commands.Destroy())
+                    `fails with`("Lender must be a signer.")
+                }
             }
         }
     }
@@ -167,8 +185,14 @@ class IOUContractTests {
     fun `Destroy - expect valid transaction`() {
         ledgerServices.ledger {
             transaction {
+                command(miniCorp.publicKey, IOUContract.Commands.Destroy())
+                command(megaCorp.publicKey, CashContract.Commands.Move())
+
                 input(IOUContract.ID, IOUState(iouValue, miniCorp.party, megaCorp.party))
-                command(listOf(miniCorp.publicKey), IOUContract.Commands.Destroy())
+                input(CashContract.ID, CashState(iouValue.toLong(), megaCorp.party))
+
+                output(CashContract.ID, CashState(iouValue.toLong(), miniCorp.party))
+
                 verifies()
             }
         }

@@ -1,5 +1,6 @@
 package com.example.contract
 
+import com.example.state.CashState
 import com.example.state.IOUState
 import net.corda.core.contracts.CommandData
 import net.corda.core.contracts.Contract
@@ -46,12 +47,17 @@ class IOUContract : Contract {
                 "The IOU's value must be non-negative." using (out.value > 0)
             }
             is Commands.Destroy -> requireThat {
-                "There should be no IOUState output." using (tx.outputsOfType<IOUState>().isEmpty())
+                "There should be two inputs in general." using (tx.inputs.size == 2)
                 "There should be only one IOUState input." using (tx.inputsOfType<IOUState>().size == 1)
-                val inputIOU = tx.inputsOfType<IOUState>().single()
+                "There should be only one CashState input." using (tx.inputsOfType<CashState>().size == 1)
+
+                "There should be one output in general." using (tx.outputs.size == 1)
+                "There should be one CashState output." using (tx.outputsOfType<CashState>().size == 1)
+
+                val iouStateSigner = tx.inputsOfType<IOUState>().single().lender.owningKey
 
                 "Expect one signer." using (command.signers.size == 1)
-                "Lender must be a signer." using (command.signers.single() == inputIOU.lender.owningKey)
+                "Lender must be a signer." using (command.signers.single() == iouStateSigner)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

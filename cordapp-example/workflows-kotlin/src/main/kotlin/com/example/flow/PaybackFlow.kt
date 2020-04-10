@@ -9,6 +9,7 @@ import com.example.state.IOUState
 import com.example.utils.IouStateFinder
 import com.example.utils.MoneyFinder
 import net.corda.core.contracts.Command
+import net.corda.core.contracts.Requirements.using
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.transactions.SignedTransaction
@@ -77,6 +78,8 @@ object PaybackFlow {
             val iouStateAndRef = IouStateFinder.call(serviceHub, iouStateLinearId)
             val iouState = iouStateAndRef.state.data
             val cashStateAndRef = MoneyFinder.call(serviceHub, iouState.borrower, iouState.value)
+
+            require(iouState.value.compareTo(cashStateAndRef.state.data.value) == 0) { "Payback value differ from borrowed amount." }
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.

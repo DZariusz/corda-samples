@@ -3,6 +3,7 @@ package com.example.test.flow
 import com.example.flow.ExampleFlow
 import com.example.flow.PaybackFlow
 import com.example.state.IOUState
+import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.getOrThrow
 import net.corda.testing.core.singleIdentity
 import net.corda.testing.node.MockNetwork
@@ -11,6 +12,7 @@ import net.corda.testing.node.StartedMockNode
 import net.corda.testing.node.TestCordapp
 import org.junit.After
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import kotlin.test.assertFailsWith
 
@@ -18,19 +20,16 @@ class IOUPaybackFlowTests {
     private lateinit var network: MockNetwork
     private lateinit var lender: StartedMockNode
     private lateinit var borrower: StartedMockNode
-    private lateinit var iou: IOUState
+    private lateinit var iouInput: IOUState
 
-    fun prepareIOUinput(): IOUState {
-        val iouValue = 1
-        val flow = ExampleFlow.Initiator(iouValue, borrower.info.singleIdentity())
+    // create input IOU - we need input for flow test
+    private fun issueIOU(): IOUState {
+        val flow = ExampleFlow.Initiator(9, borrower.info.singleIdentity())
         val future = lender.startFlow(flow)
         network.runNetwork()
-        val signedTx = future.getOrThrow()
 
-        val recordedTx = lender.services.validatedTransactions.getTransaction(signedTx.id)
-        val txOutputs = recordedTx!!.tx.outputs
-
-        return txOutputs[0].data as IOUState
+        val stx: SignedTransaction? = future.get()
+        return stx?.tx?.outputs?.get(0)?.data as IOUState
     }
 
     @Before
@@ -51,7 +50,7 @@ class IOUPaybackFlowTests {
 
         network.runNetwork()
 
-        iou = prepareIOUinput()
+        iouInput = issueIOU();
     }
 
     @After
@@ -60,11 +59,35 @@ class IOUPaybackFlowTests {
     }
 
     @Test
-    fun `flow rejects invalid UUID string`() {
-        val flow = PaybackFlow.Initiator("123", iou.value)
+    @Ignore
+    fun `throw when invalid UUID string`() {
+        val flow = PaybackFlow.Initiator("123", iouInput.value)
         val future = lender.startFlow(flow)
         network.runNetwork()
 
         assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
     }
+
+    @Test
+    fun `throw when value doesn't match IOU`() {
+        val flow = PaybackFlow.Initiator(iouInput.linearId.toString(), iouInput.value - 1)
+        val future = lender.startFlow(flow)
+        network.runNetwork()
+
+        assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
+    }
+
+
+    @Test
+    @Ignore
+    fun `SignedTransaction returned by the flow is signed by both sides`() {
+        val flow = PaybackFlow.Initiator(iouInput.linearId.toString(), iouInput.value)
+        val future = borrower.startFlow(flow)
+        network.runNetwork()
+
+        val signedTx = future.getOrThrow()
+        signedTx.verifySignaturesExcept(borrower.info.singleIdentity().owningKey)
+        signedTx.verifySignaturesExcept(lender.info.singleIdentity().owningKey)
+    }
+
 }

@@ -17,18 +17,22 @@ object CashSchemaV1 : MappedSchema(
     const val CURRENCY = "PLN"
 
     @Entity
-    @Table(name = "coin_states")
+    @Table(name = "cash_states")
     class PersistentCash(
             @Column(name = "owner")
             var owner: String,
 
-            @Column(name = "balance")
-            var balance: Amount<Currency>,
+            @Column(name = "value")
+            var value: Long,
+
+            @Column(name = "currency")
+            var currency: String,
 
             @Column(name = "linear_id")
             var linearId: UUID
     ) : PersistentState() {
         // Default constructor required by hibernate.
-        constructor(): this("", Amount(0, Currency.getInstance(CURRENCY)),  UUID.randomUUID())
+        constructor(): this("",0L, CURRENCY,  UUID.randomUUID())
+        constructor(owner: String, value: Long): this(owner, value, CURRENCY,  UUID.randomUUID())
     }
 }

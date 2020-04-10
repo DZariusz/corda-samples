@@ -18,14 +18,25 @@ class CashContract : Contract {
 
         when (command.value) {
             is Commands.Create -> requireThat {
-                // everyone can print/crate cash... because of covi... crisis
-                val cashState = tx.inputsOfType<CashState>().single()
-                "Cash value must be positive" using (cashState.balance > 0)
+                "There should be no input." using tx.inputsOfType<CashState>().isEmpty()
+                // in this exercise I allow anyone to create cash
+                val cashState = tx.outputsOfType<CashState>().single()
+                "Cash value must be positive" using (cashState.value > 0)
+                "Expect one signature" using (command.signers.size == 1)
+                "Creator must be a signer" using (command.signers.single() == cashState.owner.owningKey)
             }
             is Commands.Move -> requireThat {
-                // yet another dummy verification
-                val cashState = tx.inputsOfType<CashState>().first()
-                "Cash value must be positive" using (cashState.balance > 0)
+                "There should be one input." using (tx.inputsOfType<CashState>().size == 1)
+                "There should be one output." using (tx.outputsOfType<CashState>().size == 1)
+
+                val cashStateIn = tx.inputsOfType<CashState>().single()
+                val cashStateOut = tx.outputsOfType<CashState>().single()
+
+                "in/out value must match" using (cashStateIn.value.equals(cashStateOut.value))
+                "Can't move to the same party" using (!cashStateIn.owner.equals(cashStateOut.owner))
+
+                "Expect one signature" using (command.signers.size == 1)
+                "Previous owner must sign." using (command.signers.single() == cashStateIn.owner.owningKey)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

@@ -1,6 +1,5 @@
 package com.example.contract
 
-import com.example.state.CashState
 import com.example.state.IOUState
 import net.corda.core.contracts.CommandData
 import net.corda.core.contracts.Contract
@@ -41,23 +40,19 @@ class IOUContract : Contract {
                 val out = tx.outputsOfType<IOUState>().single()
                 "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
                 "Command require two signers." using (command.signers.size == 2)
-                "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
+                "All of the participants must be signers." using (command.signers.containsAll(listOf(out.lender.owningKey, out.borrower.owningKey)))
 
                 // IOU-specific constraints.
                 "The IOU's value must be non-negative." using (out.value > 0)
             }
             is Commands.Destroy -> requireThat {
-                "There should be two inputs in general." using (tx.inputs.size == 2)
-                "There should be only one IOUState input." using (tx.inputsOfType<IOUState>().size == 1)
-                "There should be only one CashState input." using (tx.inputsOfType<CashState>().size == 1)
+                "There should be one input." using (tx.inputsOfType<IOUState>().size == 1)
+                "There should be no output." using tx.outputsOfType<IOUState>().isEmpty()
 
-                "There should be one output in general." using (tx.outputs.size == 1)
-                "There should be one CashState output." using (tx.outputsOfType<CashState>().size == 1)
-
-                val iouStateSigner = tx.inputsOfType<IOUState>().single().lender.owningKey
+                val lenderPK = tx.inputsOfType<IOUState>().single().lender.owningKey
 
                 "Expect one signer." using (command.signers.size == 1)
-                "Lender must be a signer." using (command.signers.single() == iouStateSigner)
+                "Lender must be a signer." using (command.signers.single() == lenderPK)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

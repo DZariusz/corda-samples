@@ -2,7 +2,6 @@ package com.example.state
 
 import com.example.contract.CashContract
 import com.example.schema.CashSchemaV1
-import net.corda.core.contracts.Amount
 import net.corda.core.contracts.BelongsToContract
 import net.corda.core.contracts.CommandAndState
 import net.corda.core.contracts.OwnableState
@@ -10,18 +9,16 @@ import net.corda.core.identity.AbstractParty
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.schemas.PersistentState
 import net.corda.core.schemas.QueryableState
-import java.util.*
 
 @BelongsToContract(CashContract::class)
-data class CashState(val balance: Long, override val owner: AbstractParty): OwnableState, QueryableState {
+data class CashState(val value: Long, override val owner: AbstractParty): OwnableState, QueryableState {
     override val participants: List<AbstractParty> get() = listOf(owner)
 
     override fun generateMappedObject(schema: MappedSchema): PersistentState {
         return when (schema) {
             is CashSchemaV1 -> CashSchemaV1.PersistentCash(
                     this.owner.nameOrNull().toString(),
-                    Amount(this.balance, Currency.getInstance(CashSchemaV1.CURRENCY)),
-                    UUID.randomUUID()
+                    this.value
             )
             else -> throw IllegalArgumentException("Unrecognised schema $schema")
         }

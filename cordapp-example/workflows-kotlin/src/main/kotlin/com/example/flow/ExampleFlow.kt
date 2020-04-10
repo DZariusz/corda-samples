@@ -73,13 +73,17 @@ object ExampleFlow {
             val iouState = IOUState(iouValue, serviceHub.myInfo.legalIdentities.first(), borrower)
 
             // just printing some money, so I can payback later
+            // this is not how it should be done, but just for this module 3 I will leave it that way
             val cashState = CashState(iouState.value.toLong(), iouState.borrower);
 
-            val txCommand = Command(IOUContract.Commands.Create(), iouState.participants.map { it.owningKey })
+            val iouCommand = Command(IOUContract.Commands.Create(), iouState.participants.map { it.owningKey })
+            val cashCommand = Command(CashContract.Commands.Create(), ourIdentity.owningKey)
+
             val txBuilder = TransactionBuilder(notary)
                     .addOutputState(iouState, IOUContract.ID)
                     .addOutputState(cashState, CashContract.ID)
-                    .addCommand(txCommand)
+                    .addCommand(iouCommand)
+                    .addCommand(cashCommand)
 
             // Stage 2.
             progressTracker.currentStep = VERIFYING_TRANSACTION

@@ -10,7 +10,6 @@ import com.example.utils.bankProvider
 import com.example.utils.iouStateFinder
 import com.example.utils.moneyFinder
 import net.corda.core.contracts.Command
-import net.corda.core.contracts.Requirements.using
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.transactions.SignedTransaction
@@ -75,9 +74,9 @@ object PaybackFlow {
             //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
             // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
-            val iouStateAndRef = iouStateFinder(serviceHub, iouStateLinearId)
+            val iouStateAndRef = serviceHub.iouStateFinder(iouStateLinearId)
             val iouState = iouStateAndRef.state.data
-            val cashStateAndRef = moneyFinder(serviceHub, iouState.borrower, iouState.value)!!
+            val cashStateAndRef = serviceHub.moneyFinder(iouState.borrower, iouState.value)!!
 
             require(iouState.value.compareTo(cashStateAndRef.state.data.value) == 0) { "Payback value differ from borrowed amount." }
 
@@ -158,7 +157,7 @@ object PaybackFlow {
                     "Borrower should own payback cash." using iouState.borrower.owningKey.equals(cashState.owner.owningKey)
                     // below should be always true, because on cash creation we have condition
                     //to accept only bank as a creator
-                    "Accept only money created by bank." using cashState.creator.owningKey.equals(bankProvider(serviceHub).owningKey)
+                    "Accept only money created by bank." using cashState.creator.equals(serviceHub.bankProvider())
                 }
             }
             val txId = subFlow(signTransactionFlow).id

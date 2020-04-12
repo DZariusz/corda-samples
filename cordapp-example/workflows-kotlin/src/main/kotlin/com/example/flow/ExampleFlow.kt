@@ -67,7 +67,7 @@ object ExampleFlow {
         override fun call(): SignedTransaction {
             // Obtain a reference to the notary we want to use.
             val notary = serviceHub.networkMapCache.notaryIdentities[0]
-            val bank = bankProvider(serviceHub)
+            val bank = serviceHub.bankProvider()
             
             // Stage 1.
             progressTracker.currentStep = GENERATING_TRANSACTION
@@ -127,7 +127,7 @@ object ExampleFlow {
                     "I won't accept IOUs with a value over 100." using (iou.value <= 100)
                     "Expect one output CashState." using (stx.tx.outputsOfType<CashState>().size == 1)
                     val cash = stx.tx.outputsOfType<CashState>().single()
-                    "Expect bank to be cash creator" using cash.creator.equals(bankProvider(serviceHub))
+                    "Expect bank to be cash creator" using cash.creator.equals(serviceHub.bankProvider())
                 }
             }
             val txId = subFlow(signTransactionFlow).id

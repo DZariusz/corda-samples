@@ -13,12 +13,12 @@ import java.lang.Exception
 
 // just for this exercise and make it simple `ExampleFlow` creates a money, so on payback I can use
 // "the same" money (same owner, same value). This class finds it.
-fun moneyFinder(serviceHub: ServiceHub, cashOwner: Party, amount: Int): StateAndRef<CashState>? {
+val moneyFinder: ServiceHub.(cashOwner: Party, amount: Int) -> StateAndRef<CashState>? = { cashOwner: Party, amount: Int ->
     val pageSpec = PageSpecification(pageNumber = 1, pageSize = 1)
-    val criteria = moneyQueryCriteria(bankProvider(serviceHub), cashOwner, amount.toLong())
-    val results = serviceHub.vaultService.queryBy(CashState::class.java, criteria = criteria, paging = pageSpec)
+    val criteria = moneyQueryCriteria(this.bankProvider(), cashOwner, amount.toLong())
+    val results = this.vaultService.queryBy(CashState::class.java, criteria = criteria, paging = pageSpec)
 
-    return if (results.states.isEmpty()) null else results.states.first()
+    if (results.states.isEmpty()) null else results.states.first()
 }
 
 private fun moneyQueryCriteria(creator: Party, cashOwner: Party, amount: Long): QueryCriteria {

@@ -1,8 +1,6 @@
 package com.example.test.contract
 
-import com.example.contract.CashContract
 import com.example.contract.IOUContract
-import com.example.state.CashState
 import com.example.state.IOUState
 import net.corda.core.identity.CordaX500Name
 import net.corda.testing.contracts.DummyContract
@@ -13,7 +11,9 @@ import net.corda.testing.node.ledger
 import org.junit.Test
 
 class IOUContractTests {
-    private val ledgerServices = MockServices(listOf("com.example.contract", "com.example.flow"))
+    private val ledgerServices = MockServices(listOf(
+            "com.example.contract", "com.example.flow", "net.corda.testing.contracts"
+    ))
     private val borrower = TestIdentity(CordaX500Name("MegaCorp", "London", "GB"))
     private val lender = TestIdentity(CordaX500Name("MiniCorp", "New York", "US"))
     private val dummyParty = TestIdentity(CordaX500Name("Dummy", "Dummy", "US"))
@@ -163,23 +163,8 @@ class IOUContractTests {
                 command(lender.publicKey, IOUContract.Commands.Destroy())
                 input(IOUContract.ID, IOUState(iouValue, lender.party, borrower.party))
 
-                /*
-                    for some reason I can't pass this test
-                    when I use Cash as other input/output I got:
-                    java.lang.IllegalStateException: Required com.example.contract.IOUContract.Commands command
-
-                command(borrower.publicKey, CashContract.Commands.Move())
-                input(CashContract.ID, CashState(iouValue.toLong(), borrower.party))
-                output(CashContract.ID, CashState(iouValue.toLong(), lender.party))
-                // */
-
-                /*
-                    when I'm using DummyContract, it fails because of:
-                    net.corda.core.transactions.MissingContractAttachments Cannot find contract attachments for net.corda.testing.contracts.DummyContract
-
                 command(lender.publicKey,  DummyContract.Commands.Create())
                 input(DummyContract.PROGRAM_ID, DummyState())
-                // */
 
                 verifies()
             }

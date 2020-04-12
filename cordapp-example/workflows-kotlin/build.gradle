@@ -107,7 +107,7 @@ task deployNodes(type: Cordform, dependsOn: ['jar']) {
         rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
     }
     node {
-        name "O=PartyC,L=Paris,C=FR"
+        name "O=Bank,L=Paris,C=FR"
         p2pPort 10012
         rpcSettings {
             address("localhost:10013")

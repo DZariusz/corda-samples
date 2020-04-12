@@ -6,8 +6,9 @@ import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.CashState
 import com.example.state.IOUState
-import com.example.utils.IouStateFinder
-import com.example.utils.MoneyFinder
+import com.example.utils.bankProvider
+import com.example.utils.iouStateFinder
+import com.example.utils.moneyFinder
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.Requirements.using
 import net.corda.core.contracts.requireThat
@@ -30,7 +31,6 @@ import net.corda.core.utilities.unwrap
  * All methods called within the [FlowLogic] sub-class need to be annotated with the @Suspendable annotation.
  */
 object PaybackFlow {
-
 
     @InitiatingFlow
     @StartableByRPC
@@ -75,16 +75,16 @@ object PaybackFlow {
             //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
             // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
-            val iouStateAndRef = IouStateFinder.call(serviceHub, iouStateLinearId)
+            val iouStateAndRef = iouStateFinder(serviceHub, iouStateLinearId)
             val iouState = iouStateAndRef.state.data
-            val cashStateAndRef = MoneyFinder.call(serviceHub, iouState.borrower, iouState.value)
+            val cashStateAndRef = moneyFinder(serviceHub, iouState.borrower, iouState.value)!!
 
             require(iouState.value.compareTo(cashStateAndRef.state.data.value) == 0) { "Payback value differ from borrowed amount." }
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
             val destroyIOUCommand = Command(IOUContract.Commands.Destroy(), iouState.lender.owningKey)
-            val (moveCashCommand, cashOutputState) = cashStateAndRef.state.data.withNewOwner(iouState.borrower)
+            val (moveCashCommand, cashOutputState) = cashStateAndRef.state.data.withNewOwner(iouState.lender)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
 
@@ -154,8 +154,11 @@ object PaybackFlow {
                     val cashState = serviceHub.toStateAndRef<CashState>(stx.tx.inputs.last()).state.data
 
                     "Payback value differ from borrowed amount." using (cashState.value.compareTo(iouState.value) == 0)
-                    "Lender should own IOU." using (iouState.lender.owningKey == ourIdentity.owningKey)
-                    "Borrower should own payback cash." using (iouState.borrower.owningKey == cashState.owner.owningKey)
+                    "Lender should own IOU." using iouState.lender.owningKey.equals(ourIdentity.owningKey)
+                    "Borrower should own payback cash." using iouState.borrower.owningKey.equals(cashState.owner.owningKey)
+                    // below should be always true, because on cash creation we have condition
+                    //to accept only bank as a creator
+                    "Accept only money created by bank." using cashState.creator.owningKey.equals(bankProvider(serviceHub).owningKey)
                 }
             }
             val txId = subFlow(signTransactionFlow).id

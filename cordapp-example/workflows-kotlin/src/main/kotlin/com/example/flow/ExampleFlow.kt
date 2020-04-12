@@ -7,6 +7,7 @@ import com.example.flow.ExampleFlow.Acceptor
 import com.example.flow.ExampleFlow.Initiator
 import com.example.state.CashState
 import com.example.state.IOUState
+import com.example.utils.bankProvider
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
@@ -66,6 +67,7 @@ object ExampleFlow {
         override fun call(): SignedTransaction {
             // Obtain a reference to the notary we want to use.
             val notary = serviceHub.networkMapCache.notaryIdentities[0]
+            val bank = bankProvider(serviceHub)
             
             // Stage 1.
             progressTracker.currentStep = GENERATING_TRANSACTION
@@ -74,10 +76,10 @@ object ExampleFlow {
 
             // just printing some money, so I can payback later
             // this is not how it should be done, but just for this module 3 I will leave it that way
-            val cashState = CashState(iouState.value.toLong(), iouState.borrower);
+            val cashState = CashState(iouState.value.toLong(), bank, iouState.borrower);
 
             val iouCommand = Command(IOUContract.Commands.Create(), iouState.participants.map { it.owningKey })
-            val cashCommand = Command(CashContract.Commands.Create(), ourIdentity.owningKey)
+            val cashCommand = Command(CashContract.Commands.Create(), bank.owningKey)
 
             val txBuilder = TransactionBuilder(notary)
                     .addOutputState(iouState, IOUContract.ID)
@@ -99,12 +101,17 @@ object ExampleFlow {
             progressTracker.currentStep = GATHERING_SIGS
             // Send the state to the counterparty, and receive it back with their signature.
             val otherPartySession = initiateFlow(borrower)
-            val fullySignedTx = subFlow(CollectSignaturesFlow(partSignedTx, setOf(otherPartySession), GATHERING_SIGS.childProgressTracker()))
+            val bankSession = initiateFlow(bank)
+            val fullySignedTx = subFlow(CollectSignaturesFlow(
+                    partSignedTx, setOf(otherPartySession, bankSession), GATHERING_SIGS.childProgressTracker()
+            ))
 
             // Stage 5.
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(fullySignedTx, setOf(otherPartySession), FINALISING_TRANSACTION.childProgressTracker()))
+            return subFlow(FinalityFlow(
+                    fullySignedTx, setOf(otherPartySession, bankSession), FINALISING_TRANSACTION.childProgressTracker()
+            ))
         }
     }
 
@@ -115,9 +122,12 @@ object ExampleFlow {
             val signTransactionFlow = object : SignTransactionFlow(otherPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
                     // The transaction involves an IOUState - this ensures that IOUContract will be run to verify the transaction
-                    "This must be an IOU transaction." using (stx.tx.outputsOfType<IOUState>().size == 1)
+                    "This must be an IOU." using (stx.tx.outputsOfType<IOUState>().size == 1)
                     val iou = stx.tx.outputsOfType<IOUState>().single()
                     "I won't accept IOUs with a value over 100." using (iou.value <= 100)
+                    "Expect one output CashState." using (stx.tx.outputsOfType<CashState>().size == 1)
+                    val cash = stx.tx.outputsOfType<CashState>().single()
+                    "Expect bank to be cash creator" using cash.creator.equals(bankProvider(serviceHub))
                 }
             }
             val txId = subFlow(signTransactionFlow).id

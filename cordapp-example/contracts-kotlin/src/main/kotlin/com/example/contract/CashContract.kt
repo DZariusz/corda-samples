@@ -19,11 +19,12 @@ class CashContract : Contract {
         when (command.value) {
             is Commands.Create -> requireThat {
                 "There should be no input." using tx.inputsOfType<CashState>().isEmpty()
-                // in this exercise I allow anyone to create cash
                 val cashState = tx.outputsOfType<CashState>().single()
                 "Cash value must be positive" using (cashState.value > 0)
                 "Expect one signature" using (command.signers.size == 1)
-                "Creator must be a signer" using (command.signers.single() == cashState.owner.owningKey)
+                // I can't think about a way of checking if this command is sign by bank
+                // probably must be done in a flow
+                //"Bank must be a signer" using (command.signers.single() == bankProvider())
             }
             is Commands.Move -> requireThat {
                 "There should be one input." using (tx.inputsOfType<CashState>().size == 1)
@@ -37,6 +38,8 @@ class CashContract : Contract {
 
                 "Expect one signature" using (command.signers.size == 1)
                 "Previous owner must sign." using (command.signers.single() == cashStateIn.owner.owningKey)
+
+                "Creator stays intact." using (cashStateIn.creator.equals(cashStateOut.creator))
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

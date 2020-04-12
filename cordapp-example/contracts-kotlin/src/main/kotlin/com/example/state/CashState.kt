@@ -11,12 +11,13 @@ import net.corda.core.schemas.PersistentState
 import net.corda.core.schemas.QueryableState
 
 @BelongsToContract(CashContract::class)
-data class CashState(val value: Long, override val owner: AbstractParty): OwnableState, QueryableState {
+data class CashState(val value: Long, val creator: AbstractParty, override val owner: AbstractParty): OwnableState, QueryableState {
     override val participants: List<AbstractParty> get() = listOf(owner)
 
     override fun generateMappedObject(schema: MappedSchema): PersistentState {
         return when (schema) {
             is CashSchemaV1 -> CashSchemaV1.PersistentCash(
+                    this.creator.nameOrNull().toString(),
                     this.owner.nameOrNull().toString(),
                     this.value
             )

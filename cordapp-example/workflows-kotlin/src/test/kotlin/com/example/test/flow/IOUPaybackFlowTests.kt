@@ -109,6 +109,18 @@ class IOUPaybackFlowTests {
     }
 
     @Test
+    fun `Throw when money is not created by bank`() {
+        val flow = CreateMoneyFlow.Initiator(cashValue, borrower.info.singleIdentity())
+        lender.startFlow(flow)
+        network.runNetwork()
+        
+        val future = validFuture()
+        network.runNetwork()
+
+        assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
+    }
+
+    @Test
     fun `SignedTransaction returned by the flow is signed by both sides`() {
         createMoney(cashValue, borrower.info.singleIdentity())
         val future = validFuture()

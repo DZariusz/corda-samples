@@ -17,12 +17,9 @@ object CreateMoneyFlow {
         @Suspendable
         override fun call(): SignedTransaction {
             val notary = serviceHub.networkMapCache.notaryIdentities[0]
-            val bank = serviceHub.bankProvider()
 
-            require(ourIdentity.owningKey == bank.owningKey) { "only bank can create money" }
-
-            val cashState = CashState(cashValue, bank, moneyOwner);
-            val cashCommand = Command(CashContract.Commands.Create(), bank.owningKey)
+            val cashState = CashState(cashValue, ourIdentity, moneyOwner);
+            val cashCommand = Command(CashContract.Commands.Create(), ourIdentity.owningKey)
 
             val txBuilder = TransactionBuilder(notary)
                     .addOutputState(cashState, CashContract.ID)

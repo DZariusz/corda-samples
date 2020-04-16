@@ -49,12 +49,12 @@ class CreateMoneyFlowTests {
     }
 
     @Test
-    fun `throw when creator is not a bank`() {
+    fun `NOT throw when creator is not a bank`() {
         val flow = CreateMoneyFlow.Initiator(cashValue, bank.info.singleIdentity())
         val future = owner.startFlow(flow)
         network.runNetwork()
 
-        assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
+        future.get()
     }
 
     @Test

@@ -1,11 +1,14 @@
 package com.example.test.flow
 
+import com.example.flow.CreateMoneyFlow
 import com.example.flow.ExampleFlow
 import com.example.flow.PaybackFlow
 import com.example.state.CashState
 import com.example.state.IOUState
+import com.example.utils.moneyQueryCriteria
 import net.corda.core.concurrent.CordaFuture
 import net.corda.core.identity.CordaX500Name
+import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.getOrThrow
 import net.corda.testing.core.singleIdentity
@@ -15,6 +18,7 @@ import net.corda.testing.node.StartedMockNode
 import net.corda.testing.node.TestCordapp
 import org.junit.After
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -25,19 +29,28 @@ class IOUPaybackFlowTests {
     private lateinit var bank: StartedMockNode
     private lateinit var lender: StartedMockNode
     private lateinit var borrower: StartedMockNode
+    private lateinit var bankrupt: StartedMockNode
     private lateinit var iouInput: IOUState
+    private lateinit var bankruptIouInput: IOUState
+    private var cashValue: Long = 9
 
-    private lateinit var validFlow: PaybackFlow.Initiator
-    private lateinit var validFuture: CordaFuture<SignedTransaction>
+    private fun validFlow() = PaybackFlow.Initiator(iouInput.linearId.toString())
+    private fun validFuture() = borrower.startFlow(validFlow())
 
     // create input IOU - we need input for flow test
-    private fun issueIOU(): IOUState {
-        val flow = ExampleFlow.Initiator(9, borrower.info.singleIdentity())
+    private fun issueIOU(borrower: Party): IOUState {
+        val flow = ExampleFlow.Initiator(cashValue.toInt(), borrower)
         val future = lender.startFlow(flow)
         network.runNetwork()
 
         val stx: SignedTransaction? = future.get()
         return stx?.tx?.outputs?.get(0)?.data as IOUState
+    }
+
+    private fun createMoney(cashValue: Long, owner: Party) {
+        val flow = CreateMoneyFlow.Initiator(cashValue, owner)
+        val future = bank.startFlow(flow)
+        network.runNetwork()
     }
 
     @Before
@@ -53,17 +66,15 @@ class IOUPaybackFlowTests {
         borrower = network.createPartyNode()
 
         // For real nodes this happens automatically, but we have to manually register the flow for tests.
-        listOf(lender, borrower).forEach {
+        listOf(lender, borrower, bank).forEach {
             it.registerInitiatedFlow(ExampleFlow.Acceptor::class.java)
             it.registerInitiatedFlow(PaybackFlow.Acceptor::class.java)
+            it.registerInitiatedFlow(CreateMoneyFlow.Acceptor::class.java)
         }
 
         network.runNetwork()
 
-        iouInput = issueIOU()
-
-        validFlow = PaybackFlow.Initiator(iouInput.linearId.toString(), iouInput.value)
-        validFuture = borrower.startFlow(validFlow)
+        iouInput = issueIOU(borrower.info.singleIdentity())
     }
 
     @After
@@ -73,7 +84,7 @@ class IOUPaybackFlowTests {
 
     @Test
     fun `throw when invalid UUID string`() {
-        val flow = PaybackFlow.Initiator("123", iouInput.value)
+        val flow = PaybackFlow.Initiator("123")
         val future = lender.startFlow(flow)
         network.runNetwork()
 
@@ -81,27 +92,39 @@ class IOUPaybackFlowTests {
     }
 
     @Test
-    fun `throw when value doesn't match IOU`() {
-        val flow = PaybackFlow.Initiator(iouInput.linearId.toString(), iouInput.value - 1)
-        val future = lender.startFlow(flow)
+    fun `throw when no money`() {
+        val future = validFuture()
         network.runNetwork()
 
-        assertFailsWith<KotlinNullPointerException> { future.getOrThrow() }
+        assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
+    }
+
+    @Test
+    fun `throw when not enough money`() {
+        createMoney(cashValue - 1, borrower.info.singleIdentity())
+        val future = validFuture()
+        network.runNetwork()
+
+        assertFailsWith<IllegalArgumentException> { future.getOrThrow() }
     }
 
     @Test
     fun `SignedTransaction returned by the flow is signed by both sides`() {
+        createMoney(cashValue, borrower.info.singleIdentity())
+        val future = validFuture()
         network.runNetwork()
 
-        val signedTx = validFuture.getOrThrow()
+        val signedTx = future.getOrThrow()
         signedTx.verifySignaturesExcept(borrower.info.singleIdentity().owningKey)
         signedTx.verifySignaturesExcept(lender.info.singleIdentity().owningKey)
     }
 
     @Test
     fun `flow records a transaction in both parties' transaction storages`() {
+        createMoney(cashValue, borrower.info.singleIdentity())
+        val future = validFuture()
         network.runNetwork()
-        val signedTx = validFuture.getOrThrow()
+        val signedTx = future.getOrThrow()
 
         // We check the recorded transaction in both transaction storages.
         for (node in listOf(borrower, lender)) {
@@ -110,28 +133,26 @@ class IOUPaybackFlowTests {
     }
 
     @Test
-    fun `recorded transaction has 2 inputs and 2 outputs`() {
+    fun `recorded transaction has valid number of inputs and outputs`() {
+        //createMoney(1L, borrower.info.singleIdentity())
+        createMoney(cashValue, borrower.info.singleIdentity())
+        val future = validFuture()
         network.runNetwork()
-        val signedTx = validFuture.getOrThrow()
 
-        // We check the recorded transaction in both vaults.
+        val signedTx = future.getOrThrow()
+
         for (node in listOf(borrower, lender)) {
             val recordedTx = node.services.validatedTransactions.getTransaction(signedTx.id)
             val txInputs = recordedTx!!.tx.inputs
             val txOutputs = recordedTx.tx.outputs
-            assert(txInputs.size == 2)
-            assert(txOutputs.size == 1)
 
-            val iouInputState = node.services.toStateAndRef<IOUState>(recordedTx.tx.inputs.get(0)).state.data
-            val cashInputState = node.services.toStateAndRef<CashState>(recordedTx.tx.inputs.get(1)).state.data
-            val cashOutputState = recordedTx.tx.outputsOfType<CashState>().first()
+            assert(txInputs.size == 2) { "should be 2x cash + iou" }
+            assert(txOutputs.size == 1) { "should be 2x cash" }
 
-            assertTrue(iouInputState.lender.equals(cashOutputState.owner), "lender owns money")
-            assertEquals(cashInputState.owner, borrower.info.singleIdentity())
-            assertEquals(cashOutputState.owner, lender.info.singleIdentity())
+            val cashOutputStates = recordedTx.tx.outputsOfType<CashState>()
 
-            assertEquals(iouInputState.value.toLong(), cashInputState.value, "iou value must match cash input")
-            assertEquals(cashInputState.value, cashOutputState.value, "cash amount must be the same")
+            assertTrue(cashOutputStates.all { it.owner == lender.info.singleIdentity() }, "lender owns money")
+            assertTrue(cashValue <= cashOutputStates.sumBy { it.value.toInt() }, "payback value to low")
         }
     }
 }

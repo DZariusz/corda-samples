@@ -17,6 +17,7 @@ import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
 import net.corda.core.utilities.unwrap
+import java.util.*
 
 /**
  * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
@@ -33,7 +34,7 @@ object PaybackFlow {
 
     @InitiatingFlow
     @StartableByRPC
-    class Initiator(val iouStateLinearId: String, val paybackValue: Int) : FlowLogic<SignedTransaction>() {
+    class Initiator(val iouStateLinearId: String) : FlowLogic<SignedTransaction>() {
         companion object {
             object CREATING_COMMAND : Step("Pull data from vault and create command.")
             object GENERATING_TRANSACTION : Step("Generating transaction based on IOU state.")
@@ -74,29 +75,35 @@ object PaybackFlow {
             //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
             // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
-            val iouStateAndRef = serviceHub.iouStateFinder(iouStateLinearId)
+            val iouStateAndRef = serviceHub.iouStateFinder(UUID.fromString(iouStateLinearId))
             val iouState = iouStateAndRef.state.data
-            val cashStateAndRef = serviceHub.moneyFinder(iouState.borrower, iouState.value)!!
+            val cashStatesAndRefs = serviceHub.moneyFinder(iouState.borrower, iouState.value)
 
-            require(iouState.value.compareTo(cashStateAndRef.state.data.value) == 0) { "Payback value differ from borrowed amount." }
+            require(!cashStatesAndRefs.isEmpty()) { "No money" }
+            val sum = cashStatesAndRefs.sumBy { it.state.data.value.toInt() }
+            require(iouState.value.compareTo(sum) <= 0) { "Not enough money to send payback, have: $sum needed: ${iouState.value}" }
+            require(cashStatesAndRefs.all {  it.state.data.creator == serviceHub.bankProvider() }) { "cash must be created by a bank" }
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
             val destroyIOUCommand = Command(IOUContract.Commands.Destroy(), iouState.lender.owningKey)
-            val (moveCashCommand, cashOutputState) = cashStateAndRef.state.data.withNewOwner(iouState.lender)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
 
             // Obtain a reference to the notary that was in use for input state
-            val notary = cashStateAndRef.state.notary
+            val notary = cashStatesAndRefs[0].state.notary
 
             // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
                     .addInputState(iouStateAndRef)
-                    .addInputState(cashStateAndRef)
-                    .addOutputState(cashOutputState, cashStateAndRef.state.contract, cashStateAndRef.state.notary)
                     .addCommand(destroyIOUCommand)
-                    .addCommand(moveCashCommand, cashStateAndRef.state.data.owner.owningKey)
+
+            cashStatesAndRefs.iterator().forEach {
+                val (moveCashCommand, cashOutputState) = it.state.data.withNewOwner(iouState.lender)
+                txBuilder.addInputState(it)
+                txBuilder.addOutputState(cashOutputState, it.state.contract, it.state.notary)
+                txBuilder.addCommand(moveCashCommand, it.state.data.owner.owningKey)
+            }
 
             progressTracker.currentStep = VERIFYING_TRANSACTION
             // Verify that the transaction is valid.
@@ -121,7 +128,7 @@ object PaybackFlow {
             require(confirmPayback) { "Oops, lender failed to be ready" }
 
             progressTracker.currentStep = PAYBACK_COMMUNICATION
-            lenderPartySession.send(paybackValue)
+            lenderPartySession.send(iouState.value)
 
             progressTracker.currentStep = GATHERING_SIGS
             val fullySignedTx = subFlow(CollectSignaturesFlow(
@@ -150,14 +157,16 @@ object PaybackFlow {
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
                     val iouState = serviceHub.toStateAndRef<IOUState>(stx.tx.inputs.first()).state.data
-                    val cashState = serviceHub.toStateAndRef<CashState>(stx.tx.inputs.last()).state.data
+                    // val inCashStates = serviceHub.toStateAndRef<CashState>(stx.tx.inputs.last()).state.data
+                    val outCashStates = stx.tx.outputsOfType<CashState>()
+                    val sum = outCashStates.sumBy { it.value.toInt() }
 
-                    "Payback value differ from borrowed amount." using (cashState.value.compareTo(iouState.value) == 0)
+                    "Not enough money to payback. $sum < ${iouState.value}" using (iouState.value.compareTo(sum) <= 0)
                     "Lender should own IOU." using iouState.lender.owningKey.equals(ourIdentity.owningKey)
-                    "Borrower should own payback cash." using iouState.borrower.owningKey.equals(cashState.owner.owningKey)
-                    // below should be always true, because on cash creation we have condition
-                    //to accept only bank as a creator
-                    "Accept only money created by bank." using cashState.creator.equals(serviceHub.bankProvider())
+                    "Lender should own payback cash." using outCashStates.all { it.owner == ourIdentity }
+
+                    val bank = serviceHub.bankProvider()
+                    "Accept money created by bank." using outCashStates.all { it.creator == bank }
                 }
             }
             val txId = subFlow(signTransactionFlow).id

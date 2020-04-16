@@ -19,12 +19,12 @@ class CashContract : Contract {
         when (command.value) {
             is Commands.Create -> requireThat {
                 "There should be no input." using tx.inputsOfType<CashState>().isEmpty()
-                val cashState = tx.outputsOfType<CashState>().single()
-                "Cash value must be positive" using (cashState.value > 0)
+                val cashStates = tx.outputsOfType<CashState>()
+                "Cash value must be positive" using cashStates.all { it.value > 0 }
                 "Expect one signature" using (command.signers.size == 1)
                 // I can't think about a way of checking if this command is sign by bank
                 // probably must be done in a flow
-                "Issuer and owner must differ" using (cashState.creator != cashState.owner)
+                "Issuer and owner must differ" using cashStates.all { it.creator != it.owner }
             }
             is Commands.Move -> requireThat {
                 "There should be at least one input." using (tx.inputsOfType<CashState>().size >= 1)

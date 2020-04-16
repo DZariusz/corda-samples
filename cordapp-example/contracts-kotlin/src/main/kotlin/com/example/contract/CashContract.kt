@@ -24,22 +24,30 @@ class CashContract : Contract {
                 "Expect one signature" using (command.signers.size == 1)
                 // I can't think about a way of checking if this command is sign by bank
                 // probably must be done in a flow
-                //"Bank must be a signer" using (command.signers.single() == bankProvider())
+                "Issuer and owner must differ" using (cashState.creator != cashState.owner)
             }
             is Commands.Move -> requireThat {
-                "There should be one input." using (tx.inputsOfType<CashState>().size == 1)
-                "There should be one output." using (tx.outputsOfType<CashState>().size == 1)
+                "There should be at least one input." using (tx.inputsOfType<CashState>().size >= 1)
+                "There should be at least one output." using (tx.outputsOfType<CashState>().size >= 1)
 
-                val cashStateIn = tx.inputsOfType<CashState>().single()
-                val cashStateOut = tx.outputsOfType<CashState>().single()
+                val cashInputs = tx.inputsOfType<CashState>()
+                val cashOutputs = tx.outputsOfType<CashState>()
 
-                "in/out value must match" using (cashStateIn.value.equals(cashStateOut.value))
-                "Can't move to the same party" using (!cashStateIn.owner.equals(cashStateOut.owner))
+                val cashInSum = cashInputs.map { it.value }.sum()
+                val cashOutSum = cashOutputs.map { it.value }.sum()
+
+                "in/out value must match" using (cashInSum == cashOutSum)
+                "All inputs must belong to the same party" using (cashInputs.all { it.owner == cashInputs[0].owner })
+                "All outputs must belong to the same party" using (cashOutputs.all { it.owner == cashOutputs[0].owner })
+                "Can't move to the same party" using !cashInputs[0].owner.equals(cashOutputs[0].owner)
 
                 "Expect one signature" using (command.signers.size == 1)
-                "Previous owner must sign." using (command.signers.single() == cashStateIn.owner.owningKey)
+                "Previous owner must sign." using (command.signers.single() == cashInputs[0].owner.owningKey)
 
-                "Creator stays intact." using (cashStateIn.creator.equals(cashStateOut.creator))
+                val inputCreatorsSame = cashInputs.all { it.creator == cashInputs[0].creator }
+                val outputCreatorsSame = cashInputs.all { it.creator == cashInputs[0].creator }
+                val allCreatorsSame = inputCreatorsSame && outputCreatorsSame
+                "Creator stays intact." using (allCreatorsSame && cashInputs[0].creator == cashOutputs[0].creator)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

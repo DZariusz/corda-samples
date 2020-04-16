@@ -31,9 +31,10 @@ class CashContractTests {
     fun `Create - There should be no input`() {
         ledgerServices.ledger {
             transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
                 output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
                 command(owner.publicKey, CashContract.Commands.Create())
+                verifies()
+                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
                 `fails with`("There should be no input.")
             }
         }
@@ -43,9 +44,15 @@ class CashContractTests {
     fun `Create - Cash value must be positive`() {
         ledgerServices.ledger {
             transaction {
-                output(CashContract.ID, CashState(-1L, bank.party, owner.party))
                 command(owner.publicKey, CashContract.Commands.Create())
-                `fails with`("Cash value must be positive")
+
+                tweak {
+                    output(CashContract.ID, CashState(-1L, bank.party, owner.party))
+                    `fails with`("Cash value must be positive")
+                }
+
+                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                verifies()
             }
         }
     }
@@ -57,6 +64,23 @@ class CashContractTests {
                 output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
                 command(listOf(owner.publicKey, owner.publicKey), CashContract.Commands.Create())
                 `fails with`("Expect one signature")
+            }
+        }
+    }
+
+    @Test
+    fun `Create - Issuer and owner must differ`() {
+        ledgerServices.ledger {
+            transaction {
+                command(owner.publicKey, CashContract.Commands.Create())
+
+                tweak {
+                    output(CashContract.ID, CashState(iouValue, bank.party, bank.party))
+                    `fails with`("Issuer and owner must differ")
+                }
+
+                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                verifies()
             }
         }
     }
@@ -75,30 +99,46 @@ class CashContractTests {
     }
 
     @Test
-    fun `Move - There should be one input`() {
+    fun `Move - There should be at least one input`() {
         ledgerServices.ledger {
             transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
                 command(owner.publicKey, CashContract.Commands.Move())
-                `fails with`("There should be one input.")
+                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                `fails with`("There should be at least one input.")
+
+                tweak {
+                    input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                    verifies()
+                }
+
+                tweak {
+                    input(CashContract.ID, CashState(iouValue - 1, bank.party, owner.party))
+                    input(CashContract.ID, CashState(1, bank.party, owner.party))
+                    verifies()
+                }
             }
         }
     }
 
     @Test
-    fun `Move - There should be one output`() {
+    fun `Move - There should be at least one output`() {
         ledgerServices.ledger {
             transaction {
                 command(owner.publicKey, CashContract.Commands.Move())
                 input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                `fails with`("There should be one output.")
+                `fails with`("There should be at least one output.")
 
                 tweak {
-                    output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                    output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                    `fails with`("There should be one output.")
+                    output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                    verifies()
                 }
+
+                tweak {
+                    output(CashContract.ID, CashState(1, bank.party, newOwner.party))
+                    output(CashContract.ID, CashState(iouValue - 1, bank.party, newOwner.party))
+                    verifies()
+                }
+
             }
         }
     }

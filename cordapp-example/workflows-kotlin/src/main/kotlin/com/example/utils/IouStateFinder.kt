@@ -1,12 +1,11 @@
 package com.example.utils
 
 import com.example.state.IOUState
-import net.corda.core.contracts.StateAndRef
 import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.vault.QueryCriteria
 import java.util.*
 
-val iouStateFinder: ServiceHub.(String) -> StateAndRef<IOUState> = { iouStateLinearId ->
+/* val iouStateFinder: ServiceHub.(String) -> StateAndRef<IOUState> = { iouStateLinearId ->
     val uuid: UUID = UUID.fromString(iouStateLinearId)
     val queryCriteria: QueryCriteria = QueryCriteria.LinearStateQueryCriteria().withUuid(listOf(uuid))
 
@@ -15,4 +14,9 @@ val iouStateFinder: ServiceHub.(String) -> StateAndRef<IOUState> = { iouStateLin
     // val (state, ref) = serviceHub.toStateAndRef<ContractState>(ourStateRef)
     this.toStateAndRef<IOUState>(results.states.single().ref)
     //return inputStateAndRef.state.data
-}
+} // */
+
+fun ServiceHub.iouStateFinder(uuid: UUID) =
+        QueryCriteria.LinearStateQueryCriteria().withUuid(listOf(uuid))
+                .let { criteria -> vaultService.queryBy(IOUState::class.java, criteria) }
+                .let { results -> toStateAndRef<IOUState>(results.states.single().ref) }

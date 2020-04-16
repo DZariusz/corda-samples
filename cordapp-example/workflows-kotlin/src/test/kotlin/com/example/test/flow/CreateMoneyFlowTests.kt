@@ -86,10 +86,11 @@ class CreateMoneyFlowTests {
 
         // We check the recorded transaction in both vaults.
         for (node in listOf(bank, owner)) {
-            val recordedTx = node.services.validatedTransactions.getTransaction(signedTx.id)
-            val txOutputs = recordedTx?.tx?.outputs!!
-            assert(recordedTx.tx.inputs.isEmpty())
-            assert(txOutputs.size == 1)
+            val recordedTx = node.services.validatedTransactions.getTransaction(signedTx.id)!!
+            assert(recordedTx.tx.inputs.isEmpty()) { "expect no inputs" }
+
+            val txOutputs = recordedTx.tx.outputs
+            assert(txOutputs.size == 1) { "expect one output "}
 
             val cashOutputState = recordedTx.tx.outputsOfType<CashState>().single()
             assertEquals(cashValue, cashOutputState.value, "iou value must match cash output")

@@ -5,7 +5,6 @@ import com.example.contract.CashContract
 import com.example.state.CashState
 import com.example.utils.bankProvider
 import net.corda.core.contracts.Command
-import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.identity.Party
 import net.corda.core.transactions.SignedTransaction
@@ -42,15 +41,7 @@ object CreateMoneyFlow {
     class Acceptor(val bankSession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
-            val signTransactionFlow = object : SignTransactionFlow(bankSession) {
-                override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val cash = stx.tx.outputsOfType<CashState>().single()
-                    "Expect bank to be cash creator" using cash.creator.equals(serviceHub.bankProvider())
-                }
-            }
-
-            val txId = subFlow(signTransactionFlow).id
-            return subFlow(ReceiveFinalityFlow(bankSession, expectedTxId = txId))
+            return subFlow(ReceiveFinalityFlow(bankSession))
         }
     }
 }

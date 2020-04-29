@@ -1,14 +1,13 @@
 package com.example.flow
 
 import co.paralleluniverse.fibers.Suspendable
+import com.example.contract.CashContract
 import com.example.contract.IOUContract
 import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.CashState
 import com.example.state.IOUState
-import com.example.utils.bankProvider
-import com.example.utils.iouStateFinder
-import com.example.utils.moneyFinder
+import com.example.utils.*
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
@@ -18,6 +17,7 @@ import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
 import net.corda.core.utilities.unwrap
 import java.util.*
+import kotlin.streams.toList
 
 /**
  * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
@@ -72,37 +72,49 @@ object PaybackFlow {
         @Suspendable
         override fun call(): SignedTransaction {
             progressTracker.currentStep = CREATING_COMMAND
-            //val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
+            // val signedTransaction = serviceHub.validatedTransactions.getTransaction(loanTxId)
             // val signedTransaction = transactions.find { it.id == transactionHash } ?: throw IllegalArgumentException("Unknown transaction hash.")
 
+            val bank = serviceHub.bankProvider()
             val iouStateAndRef = serviceHub.iouStateFinder(UUID.fromString(iouStateLinearId))
             val iouState = iouStateAndRef.state.data
-            val cashStatesAndRefs = serviceHub.moneyFinder(iouState.borrower, iouState.value)
+            val cashStatesAndRefs = serviceHub.moneyFinder(bank, iouState.borrower, iouState.value)
+            val cashStateSample = cashStatesAndRefs.first().state.data
+            val sum = cashStatesAndRefs.sumByLongSecure { it.state.data.value }
+
+            if (!iouState.borrower.equals(ourIdentity)) {
+                throw IllegalArgumentException("Borrower must start the flow")
+            }
 
             require(!cashStatesAndRefs.isEmpty()) { "No money" }
-            val sum = cashStatesAndRefs.sumBy { it.state.data.value.toInt() }
-            require(iouState.value.compareTo(sum) <= 0) { "Not enough money to send payback, have: $sum needed: ${iouState.value}" }
-            require(cashStatesAndRefs.all {  it.state.data.creator == serviceHub.bankProvider() }) { "cash must be created by a bank" }
+            require(sum >= iouState.value) { "Not enough money to send payback, have: $sum needed: ${iouState.value}" }
+            require(cashStatesAndRefs.all { it.state.data.creator == bank }) { "cash must be created by a bank" }
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
             val destroyIOUCommand = Command(IOUContract.Commands.Destroy(), iouState.lender.owningKey)
+            val paybackCashCommand = Command(CashContract.Commands.Move(), listOf(cashStateSample.owner.owningKey, bank.owningKey))
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
 
             // Obtain a reference to the notary that was in use for input state
-            val notary = cashStatesAndRefs[0].state.notary
+            // I assume for this exercise, that all states have same notary
+            val notary = cashStatesAndRefs.first().state.notary
+
+            val paybackCashOutput = CashState(iouState.value.toLong(), bank, iouState.lender)
 
             // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
                     .addInputState(iouStateAndRef)
                     .addCommand(destroyIOUCommand)
+                    .addCommand(paybackCashCommand)
+                    .addOutputState(paybackCashOutput)
 
-            cashStatesAndRefs.iterator().forEach {
-                val (moveCashCommand, cashOutputState) = it.state.data.withNewOwner(iouState.lender)
-                txBuilder.addInputState(it)
-                txBuilder.addOutputState(cashOutputState, it.state.contract, it.state.notary)
-                txBuilder.addCommand(moveCashCommand, it.state.data.owner.owningKey)
+            cashStatesAndRefs.forEach { txBuilder.addInputState(it) }
+
+            if (sum > iouState.value) {
+                val changeCashOutput = CashState(sum - iouState.value, bank, iouState.borrower)
+                txBuilder.addOutputState(changeCashOutput)
             }
 
             progressTracker.currentStep = VERIFYING_TRANSACTION
@@ -110,36 +122,33 @@ object PaybackFlow {
             txBuilder.verify(serviceHub)
 
             progressTracker.currentStep = SIGNING_TRANSACTION
-            // Sign the transaction (must be by a borrower)
-            if (!iouState.borrower.equals(ourIdentity)) {
-                throw IllegalArgumentException("Borrower must start the flow")
-            }
             val signedTx = serviceHub.signInitialTransaction(txBuilder)
 
             progressTracker.currentStep = INITIALISE_OTHER_PARTY_FLOW
             // Send the state to the counterparty, and receive it back with their signature.
-            val lenderPartySession = initiateFlow(iouState.lender)
+            val lenderSession = initiateFlow(iouState.lender)
+            val bankSession = initiateFlow(bank)
 
             // send/receive part is just for experiment
-            val confirmPayback = lenderPartySession
+            val confirmPayback = lenderSession
                     .sendAndReceive<Boolean>("ready for receiving payback?")
                     .unwrap { it }
 
             require(confirmPayback) { "Oops, lender failed to be ready" }
 
             progressTracker.currentStep = PAYBACK_COMMUNICATION
-            lenderPartySession.send(iouState.value)
+            lenderSession.send(iouState.value)
 
             progressTracker.currentStep = GATHERING_SIGS
             val fullySignedTx = subFlow(CollectSignaturesFlow(
                     signedTx,
-                    setOf(lenderPartySession),
+                    setOf(lenderSession, bankSession),
                     GATHERING_SIGS.childProgressTracker())
             )
 
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(fullySignedTx, setOf(lenderPartySession), FINALISING_TRANSACTION.childProgressTracker()))
+            return subFlow(FinalityFlow(fullySignedTx, setOf(lenderSession, bankSession), FINALISING_TRANSACTION.childProgressTracker()))
         }
     }
 
@@ -147,26 +156,42 @@ object PaybackFlow {
     class Acceptor(val borrowerPartySession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
-            borrowerPartySession.receive<String>().unwrap { it }
-            //send confirmation about being ready to receive payback
-            borrowerPartySession.send(true)
+            val bank = serviceHub.bankProvider()
 
-            // just exercise
-            val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
+            if (!ourIdentity.equals(bank)) {
+                borrowerPartySession.receive<String>().unwrap { it }
+                //send confirmation about being ready to receive payback
+                borrowerPartySession.send(true)
+
+                // just exercise
+                val receivedPayback: Int = borrowerPartySession.receive<Int>().unwrap { it }
+            }
 
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val iouState = serviceHub.toStateAndRef<IOUState>(stx.tx.inputs.first()).state.data
-                    // val inCashStates = serviceHub.toStateAndRef<CashState>(stx.tx.inputs.last()).state.data
+                    val allInputStates = stx.tx.inputs.getStxStates(serviceHub)
+
+                    val inIOUState = allInputStates.filterByState<IOUState>().single()
+                    val inCashStates = allInputStates.filterByState<CashState>()
+
                     val outCashStates = stx.tx.outputsOfType<CashState>()
-                    val sum = outCashStates.sumBy { it.value.toInt() }
+                    val lenderPaybackCash = outCashStates
+                            .stream().filter { it.owner.equals(inIOUState.lender) }
+                            .toList()
 
-                    "Not enough money to payback. $sum < ${iouState.value}" using (iouState.value.compareTo(sum) <= 0)
-                    "Lender should own IOU." using iouState.lender.owningKey.equals(ourIdentity.owningKey)
-                    "Lender should own payback cash." using outCashStates.all { it.owner == ourIdentity }
+                    val inputCashSum = inCashStates.sumByLongSecure { it.value }
+                    val lenderPaybackSum = lenderPaybackCash.sumByLongSecure { it.value }
 
-                    val bank = serviceHub.bankProvider()
-                    "Accept money created by bank." using outCashStates.all { it.creator == bank }
+                    "Expect exact payback value. $lenderPaybackSum != ${inIOUState.value}" using (lenderPaybackSum == inIOUState.value.toLong())
+
+                    val borrowerChange = outCashStates
+                            .stream().filter { it.owner.equals(inIOUState.borrower) }
+                            .toList()
+                            .sumByLongSecure { it.value }
+                    "Expect change for borrower." using (inputCashSum - lenderPaybackSum == borrowerChange)
+
+                    "Accept input money created by bank." using inCashStates.all { it.creator == bank }
+                    "Accept output money created by bank" using outCashStates.all { it.creator == bank }
                 }
             }
             val txId = subFlow(signTransactionFlow).id

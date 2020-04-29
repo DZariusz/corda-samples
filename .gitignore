@@ -12,4 +12,4 @@ corda-nodeinfo/corda-nodeinfo.iml
 
 *.class
 MY-NOTES.md
-
+corda-example/.idea/*

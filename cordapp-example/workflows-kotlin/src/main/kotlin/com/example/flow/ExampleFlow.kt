@@ -5,7 +5,6 @@ import com.example.contract.IOUContract
 import com.example.flow.ExampleFlow.Acceptor
 import com.example.flow.ExampleFlow.Initiator
 import com.example.state.IOUState
-import com.example.utils.bankProvider
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*

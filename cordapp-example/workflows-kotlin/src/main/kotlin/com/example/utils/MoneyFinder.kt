@@ -6,13 +6,15 @@ import net.corda.core.contracts.StateAndRef
 import net.corda.core.identity.Party
 import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.Vault
-import net.corda.core.node.services.vault.*
-import java.util.*
+import net.corda.core.node.services.vault.DEFAULT_PAGE_NUM
+import net.corda.core.node.services.vault.PageSpecification
+import net.corda.core.node.services.vault.QueryCriteria
+import net.corda.core.node.services.vault.builder
 
-fun ServiceHub.moneyFinder(cashOwner: Party, amount: Int): MutableList<StateAndRef<CashState>> {
+fun ServiceHub.moneyFinder(creator: Party, cashOwner: Party, amount: Int): MutableList<StateAndRef<CashState>> {
     val money = mutableListOf<StateAndRef<CashState>>()
-    val criteria = moneyQueryCriteria(this.bankProvider(), cashOwner, amount.toLong())
-    var pageNumber = DEFAULT_PAGE_NUM;
+    val criteria = moneyQueryCriteria(creator, cashOwner, amount.toLong())
+    var pageNumber = DEFAULT_PAGE_NUM
     var sum = 0
 
     do {
@@ -23,7 +25,7 @@ fun ServiceHub.moneyFinder(cashOwner: Party, amount: Int): MutableList<StateAndR
         pageNumber++
     } while (sum < amount && (pageSpec.pageSize * (pageNumber - 1)) <= results.totalStatesAvailable)
 
-    return if (sum < amount) Collections.emptyList() else money
+    return if (sum < amount) mutableListOf() else money
 }
 
 fun moneyQueryCriteria(creator: Party, cashOwner: Party, amount: Long): QueryCriteria {

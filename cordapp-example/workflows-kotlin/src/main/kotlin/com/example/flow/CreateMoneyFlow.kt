@@ -20,26 +20,26 @@ object CreateMoneyFlow {
             val cashCommand = Command(CashContract.Commands.Create(), ourIdentity.owningKey)
             val txBuilder = TransactionBuilder(notary).addCommand(cashCommand)
 
-            cashOwners.forEach { party, cashList ->
-                cashList.forEach {
-                    val cashState = CashState(it, ourIdentity, party);
+            cashOwners.forEach { owner, cashValues ->
+                cashValues.forEach {
+                    val cashState = CashState(it, creator = ourIdentity, owner = owner)
                     txBuilder.addOutputState(cashState, CashContract.ID)
                 }
             }
 
             txBuilder.verify(serviceHub)
             val signedTx = serviceHub.signInitialTransaction(txBuilder)
-            val setOfSessions: Set<FlowSession> = cashOwners.map { initiateFlow(it.key) }.toSet()
+            val setOfSessions: Set<FlowSession> = cashOwners.map { it.key }.map { initiateFlow(it) }.toSet()
 
             return subFlow(FinalityFlow(signedTx, setOfSessions))
         }
     }
 
     @InitiatedBy(CreateMoneyFlow.Initiator::class)
-    class Acceptor(private val bankSession: FlowSession) : FlowLogic<SignedTransaction>() {
+    class Acceptor(private val creatorSession: FlowSession) : FlowLogic<SignedTransaction>() {
         @Suspendable
         override fun call(): SignedTransaction {
-            return subFlow(ReceiveFinalityFlow(bankSession))
+            return subFlow(ReceiveFinalityFlow(creatorSession))
         }
     }
 }

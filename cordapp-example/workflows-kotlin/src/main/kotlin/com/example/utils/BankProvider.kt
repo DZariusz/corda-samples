@@ -1,6 +1,6 @@
 package com.example.utils
 
-import net.corda.core.identity.CordaX500Name
+import com.example.settings.BANK_NAME
 import net.corda.core.node.ServiceHub
 
 /* val bankProvider: ServiceHub.() -> Party = {
@@ -9,5 +9,5 @@ import net.corda.core.node.ServiceHub
 } */
 
 fun ServiceHub.bankProvider() = networkMapCache
-        .getPeerByLegalName(CordaX500Name.parse("O=Bank,L=Paris,C=FR"))
+        .getPeerByLegalName(BANK_NAME)
         ?: throw IllegalArgumentException("Bank does not exist")

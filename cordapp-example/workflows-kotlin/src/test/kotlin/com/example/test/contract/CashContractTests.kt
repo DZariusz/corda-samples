@@ -208,22 +208,4 @@ class CashContractTests {
             }
         }
     }
-
-    @Test
-    fun `Move - Creator must sign output cash`() {
-        ledgerServices.ledger {
-            transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
-
-                tweak {
-                    command(listOf(newOwner.publicKey, owner.publicKey), CashContract.Commands.Move())
-                    `fails with`("Creator must sign output cash")
-                }
-
-                command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                verifies()
-            }
-        }
-    }
 }

@@ -3,12 +3,12 @@ package com.example.flow
 import co.paralleluniverse.fibers.Suspendable
 import com.example.contract.CashContract
 import com.example.contract.IOUContract
-import com.example.flow.PaybackFlow.Acceptor
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.CashState
 import com.example.state.IOUState
 import com.example.utils.*
 import net.corda.core.contracts.Command
+import net.corda.core.contracts.ContractState
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
 import net.corda.core.transactions.SignedTransaction
@@ -17,19 +17,7 @@ import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
 import net.corda.core.utilities.unwrap
 import java.util.*
-import kotlin.streams.toList
 
-/**
- * This flow allows two parties (the [Initiator] and the [Acceptor]) to come to an agreement about the IOU encapsulated
- * within an [IOUState].
- *
- * In our simple example, the [Acceptor] always accepts a valid IOU.
- *
- * These flows have deliberately been implemented by using only the call() method for ease of understanding. In
- * practice we would recommend splitting up the various stages of the flow into sub-routines.
- *
- * All methods called within the [FlowLogic] sub-class need to be annotated with the @Suspendable annotation.
- */
 object PaybackFlow {
 
     @InitiatingFlow
@@ -88,12 +76,11 @@ object PaybackFlow {
 
             require(!cashStatesAndRefs.isEmpty()) { "No money" }
             require(sum >= iouState.value) { "Not enough money to send payback, have: $sum needed: ${iouState.value}" }
-            require(cashStatesAndRefs.all { it.state.data.creator == bank }) { "cash must be created by a bank" }
 
             progressTracker.currentStep = GENERATING_TRANSACTION
             // Generate an unsigned transaction.
             val destroyIOUCommand = Command(IOUContract.Commands.Destroy(), iouState.lender.owningKey)
-            val paybackCashCommand = Command(CashContract.Commands.Move(), listOf(cashStateSample.owner.owningKey, bank.owningKey))
+            val paybackCashCommand = Command(CashContract.Commands.Move(), listOf(cashStateSample.owner.owningKey))
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
             //val moveMoneyCommand = Command(CashContract.Commands.Move(), iouState.borrower.owningKey)
 
@@ -127,7 +114,6 @@ object PaybackFlow {
             progressTracker.currentStep = INITIALISE_OTHER_PARTY_FLOW
             // Send the state to the counterparty, and receive it back with their signature.
             val lenderSession = initiateFlow(iouState.lender)
-            val bankSession = initiateFlow(bank)
 
             // send/receive part is just for experiment
             val confirmPayback = lenderSession
@@ -142,13 +128,13 @@ object PaybackFlow {
             progressTracker.currentStep = GATHERING_SIGS
             val fullySignedTx = subFlow(CollectSignaturesFlow(
                     signedTx,
-                    setOf(lenderSession, bankSession),
+                    setOf(lenderSession),
                     GATHERING_SIGS.childProgressTracker())
             )
 
             progressTracker.currentStep = FINALISING_TRANSACTION
             // Notarise and record the transaction in both parties' vaults.
-            return subFlow(FinalityFlow(fullySignedTx, setOf(lenderSession, bankSession), FINALISING_TRANSACTION.childProgressTracker()))
+            return subFlow(FinalityFlow(fullySignedTx, setOf(lenderSession), FINALISING_TRANSACTION.childProgressTracker()))
         }
     }
 
@@ -169,27 +155,23 @@ object PaybackFlow {
 
             val signTransactionFlow = object : SignTransactionFlow(borrowerPartySession) {
                 override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                    val allInputStates = stx.tx.inputs.getStxStates(serviceHub)
+                    val allInputStates = stx.tx.inputs.map {
+                        serviceHub.toStateAndRef<ContractState>(it).state.data
+                    }
 
                     val inIOUState = allInputStates.filterByState<IOUState>().single()
                     val inCashStates = allInputStates.filterByState<CashState>()
 
                     val outCashStates = stx.tx.outputsOfType<CashState>()
+
                     val lenderPaybackCash = outCashStates
-                            .stream().filter { it.owner.equals(inIOUState.lender) }
-                            .toList()
-
-                    val inputCashSum = inCashStates.sumByLongSecure { it.value }
-                    val lenderPaybackSum = lenderPaybackCash.sumByLongSecure { it.value }
-
-                    "Expect exact payback value. $lenderPaybackSum != ${inIOUState.value}" using (lenderPaybackSum == inIOUState.value.toLong())
-
-                    val borrowerChange = outCashStates
-                            .stream().filter { it.owner.equals(inIOUState.borrower) }
+                            .filter { it.owner.equals(inIOUState.lender) }
                             .toList()
                             .sumByLongSecure { it.value }
-                    "Expect change for borrower." using (inputCashSum - lenderPaybackSum == borrowerChange)
 
+                    "Expect exact payback value. $lenderPaybackCash != ${inIOUState.value}" using (lenderPaybackCash == inIOUState.value.toLong())
+
+                    "All input money must be owned by borrower." using inCashStates.all { it.owner == inIOUState.borrower }
                     "Accept input money created by bank." using inCashStates.all { it.creator == bank }
                     "Accept output money created by bank" using outCashStates.all { it.creator == bank }
                 }

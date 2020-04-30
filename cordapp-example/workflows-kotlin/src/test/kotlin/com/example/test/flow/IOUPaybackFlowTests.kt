@@ -138,7 +138,7 @@ class IOUPaybackFlowTests {
         val signedTx = future.getOrThrow()
 
         // We check the recorded transaction in both transaction storages.
-        for (node in listOf(borrower, lender, bank)) {
+        for (node in listOf(borrower, lender)) {
             assertEquals(signedTx, node.services.validatedTransactions.getTransaction(signedTx.id))
         }
     }
@@ -151,7 +151,7 @@ class IOUPaybackFlowTests {
 
         val signedTx = future.getOrThrow()
 
-        for (node in listOf(borrower, lender, bank)) {
+        for (node in listOf(borrower, lender)) {
             val recordedTx = node.services.validatedTransactions.getTransaction(signedTx.id)
             val txInputs = recordedTx!!.tx.inputs
             val txOutputs = recordedTx.tx.outputs

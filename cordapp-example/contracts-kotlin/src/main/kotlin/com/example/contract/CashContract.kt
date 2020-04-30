@@ -23,7 +23,7 @@ class CashContract : Contract {
                 val cashStates = tx.outputsOfType<CashState>()
                 "Cash value must be positive" using cashStates.all { it.value > 0 }
                 "Expect one signature" using (command.signers.size == 1)
-                "Creator must sign the output" using cashStates.all { command.signers.contains(it.creator.owningKey) }
+                "Creator must sign the output" using cashStates.all { command.signers.single() == it.creator.owningKey }
             }
             is Commands.Move -> requireThat {
                 val cashInputs = tx.inputsOfType<CashState>()
@@ -38,12 +38,7 @@ class CashContract : Contract {
                 "in/out value must match" using (cashInSum == cashOutSum)
 
                 "Previous cash owner must sign." using command.signers.contains(cashInputs.first().owner.owningKey)
-                "Creator must sign output cash." using cashOutputs.all { command.signers.contains(it.creator.owningKey) }
-
-                val inputCreatorsSame = cashInputs.all { it.creator == cashInputs.first().creator }
-                val outputCreatorsSame = cashOutputs.all { it.creator == cashOutputs.first().creator }
-                val allCreatorsSame = inputCreatorsSame && outputCreatorsSame
-                "Creator stays intact." using (allCreatorsSame && cashInputs.first().creator == cashOutputs.first().creator)
+                "Creator stays intact." using (cashInputs.plus(cashOutputs).map { it.creator }.toSet().size == 1)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

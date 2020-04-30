@@ -29,7 +29,7 @@ object CreateMoneyFlow {
 
             txBuilder.verify(serviceHub)
             val signedTx = serviceHub.signInitialTransaction(txBuilder)
-            val setOfSessions: Set<FlowSession> = cashOwners.map { it.key }.map { initiateFlow(it) }.toSet()
+            val setOfSessions = cashOwners.map { it.key }.map { initiateFlow(it) }
 
             return subFlow(FinalityFlow(signedTx, setOfSessions))
         }

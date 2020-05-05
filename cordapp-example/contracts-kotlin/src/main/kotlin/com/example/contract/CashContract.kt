@@ -1,7 +1,6 @@
 package com.example.contract
 
 import com.example.state.CashState
-import com.example.utils.sumByLongSecure
 import net.corda.core.contracts.CommandData
 import net.corda.core.contracts.Contract
 import net.corda.core.contracts.requireSingleCommand
@@ -32,8 +31,8 @@ class CashContract : Contract {
                 "There should be at least one input." using (cashInputs.size >= 1)
                 "There should be at least one output." using (cashOutputs.size >= 1)
 
-                val cashInSum = cashInputs.sumByLongSecure { it.value }
-                val cashOutSum = cashOutputs.sumByLongSecure { it.value }
+                val cashInSum = cashInputs.map { it.value }.fold(0L, Math::addExact)
+                val cashOutSum = cashOutputs.fold(0L) { sum, cash -> Math.addExact(sum, cash.value) }
 
                 "in/out value must match" using (cashInSum == cashOutSum)
 

@@ -6,7 +6,9 @@ import com.example.contract.IOUContract
 import com.example.flow.PaybackFlow.Initiator
 import com.example.state.CashState
 import com.example.state.IOUState
-import com.example.utils.*
+import com.example.utils.bankProvider
+import com.example.utils.iouStateFinder
+import com.example.utils.moneyFinder
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.ContractState
 import net.corda.core.contracts.requireThat
@@ -68,7 +70,7 @@ object PaybackFlow {
             val iouState = iouStateAndRef.state.data
             val cashStatesAndRefs = serviceHub.moneyFinder(bank, iouState.borrower, iouState.value)
             val cashStateSample = cashStatesAndRefs.first().state.data
-            val sum = cashStatesAndRefs.sumByLongSecure { it.state.data.value }
+            val sum = cashStatesAndRefs.map { it.state.data.value }.fold(0L, Math::addExact)
 
             if (!iouState.borrower.equals(ourIdentity)) {
                 throw IllegalArgumentException("Borrower must start the flow")
@@ -159,15 +161,14 @@ object PaybackFlow {
                         serviceHub.toStateAndRef<ContractState>(it).state.data
                     }
 
-                    val inIOUState = allInputStates.filterByState<IOUState>().single()
-                    val inCashStates = allInputStates.filterByState<CashState>()
+                    val inIOUState = allInputStates.filterIsInstance(IOUState::class.java).single()
+                    val inCashStates = allInputStates.filterIsInstance(CashState::class.java)
 
                     val outCashStates = stx.tx.outputsOfType<CashState>()
 
                     val lenderPaybackCash = outCashStates
                             .filter { it.owner.equals(inIOUState.lender) }
-                            .toList()
-                            .sumByLongSecure { it.value }
+                            .fold(0L) { acc, cash -> Math.addExact(acc, cash.value) }
 
                     "Expect exact payback value. $lenderPaybackCash != ${inIOUState.value}" using (lenderPaybackCash == inIOUState.value.toLong())
 

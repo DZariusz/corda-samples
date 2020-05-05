@@ -17,7 +17,7 @@ data class CashState(val value: Long, val creator: AbstractParty, override val o
     override fun generateMappedObject(schema: MappedSchema): PersistentState {
         return when (schema) {
             is CashSchemaV1 -> CashSchemaV1.PersistentCash(
-                    this.creator.nameOrNull().toString(),
+                    this.creator.owningKey.toString(),
                     this.owner.nameOrNull().toString(),
                     this.value
             )

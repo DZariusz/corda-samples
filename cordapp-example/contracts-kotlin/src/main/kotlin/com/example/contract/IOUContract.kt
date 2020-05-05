@@ -39,7 +39,6 @@ class IOUContract : Contract {
                 "There should be only one IOUState output." using (tx.outputsOfType<IOUState>().size == 1)
                 val out = tx.outputsOfType<IOUState>().single()
                 "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
-                "Command require two signers." using (command.signers.size == 2)
                 "All of the participants must be signers." using (command.signers.containsAll(listOf(out.lender.owningKey, out.borrower.owningKey)))
 
                 // IOU-specific constraints.
@@ -50,9 +49,7 @@ class IOUContract : Contract {
                 "There should be no output." using tx.outputsOfType<IOUState>().isEmpty()
 
                 val lenderPK = tx.inputsOfType<IOUState>().single().lender.owningKey
-
-                "Expect one signer." using (command.signers.size == 1)
-                "Lender must be a signer." using (command.signers.single() == lenderPK)
+                "Lender must sign." using command.signers.contains(lenderPK)
             }
             else -> throw IllegalArgumentException("Not supported command")
         }

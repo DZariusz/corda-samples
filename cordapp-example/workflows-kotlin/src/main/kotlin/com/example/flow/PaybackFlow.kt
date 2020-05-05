@@ -70,7 +70,7 @@ object PaybackFlow {
             val iouState = iouStateAndRef.state.data
             val cashStatesAndRefs = serviceHub.moneyFinder(bank, iouState.borrower, iouState.value)
             val cashStateSample = cashStatesAndRefs.first().state.data
-            val sum = cashStatesAndRefs.map { it.state.data.value }.fold(0L, Math::addExact)
+            val sum = cashStatesAndRefs.fold(0L) { sum, cash -> Math.addExact(sum, cash.state.data.value) }
 
             if (!iouState.borrower.equals(ourIdentity)) {
                 throw IllegalArgumentException("Borrower must start the flow")

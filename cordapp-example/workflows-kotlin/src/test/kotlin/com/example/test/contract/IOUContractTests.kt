@@ -61,7 +61,7 @@ class IOUContractTests {
             transaction {
                 output(IOUContract.ID, IOUState(iouValue, lender.party, borrower.party))
                 command(lender.publicKey, IOUContract.Commands.Create())
-                `fails with`("Command require two signers.")
+                `fails with`("All of the participants must be signers.")
             }
         }
     }
@@ -141,13 +141,8 @@ class IOUContractTests {
                 input(IOUContract.ID, IOUState(iouValue, lender.party, borrower.party))
 
                 tweak {
-                    command(listOf(lender.publicKey, borrower.publicKey), IOUContract.Commands.Destroy())
-                    `fails with`("Expect one signer.")
-                }
-
-                tweak {
                     command(borrower.publicKey, IOUContract.Commands.Destroy())
-                    `fails with`("Lender must be a signer.")
+                    `fails with`("Lender must sign.")
                 }
 
                 command(lender.publicKey, IOUContract.Commands.Destroy())

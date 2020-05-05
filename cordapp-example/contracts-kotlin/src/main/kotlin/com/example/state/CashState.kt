@@ -17,8 +17,8 @@ data class CashState(val creator: AbstractParty, override val owner: AbstractPar
     override fun generateMappedObject(schema: MappedSchema): PersistentState {
         return when (schema) {
             is CashSchemaV1 -> CashSchemaV1.PersistentCash(
-                    this.creator.owningKey.toString(),
-                    this.owner.owningKey.toString(),
+                    this.creator,
+                    this.owner,
                     this.value
             )
             else -> throw IllegalArgumentException("Unrecognised schema $schema")

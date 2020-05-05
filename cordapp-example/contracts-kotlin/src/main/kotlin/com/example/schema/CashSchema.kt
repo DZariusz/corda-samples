@@ -1,5 +1,6 @@
 package com.example.schema
 
+import net.corda.core.identity.AbstractParty
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.schemas.PersistentState
 import java.util.*
@@ -19,10 +20,10 @@ object CashSchemaV1 : MappedSchema(
     @Table(name = "cash_states")
     class PersistentCash(
             @Column(name = "creator")
-            var creator: String,
+            var creator: AbstractParty?,
 
             @Column(name = "owner")
-            var owner: String,
+            var owner: AbstractParty?,
 
             @Column(name = "value")
             var value: Long,
@@ -34,7 +35,7 @@ object CashSchemaV1 : MappedSchema(
             var linearId: UUID
     ) : PersistentState() {
         // Default constructor required by hibernate.
-        constructor() : this("", "", 0L, CURRENCY, UUID.randomUUID())
-        constructor(creator: String, owner: String, value: Long) : this(creator, owner, value, CURRENCY, UUID.randomUUID())
+        constructor() : this(null, null, 0L, CURRENCY, UUID.randomUUID())
+        constructor(creator: AbstractParty, owner: AbstractParty, value: Long) : this(creator, owner, value, CURRENCY, UUID.randomUUID())
     }
 }

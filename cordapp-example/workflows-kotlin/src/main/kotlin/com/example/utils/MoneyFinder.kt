@@ -38,7 +38,7 @@ fun moneyQueryCriteria(creator: Party, cashOwner: Party, amount: Long): QueryCri
     return builder {
         val currencyIndex = CashSchemaV1.PersistentCash::currency.equal(CashSchemaV1.CURRENCY)
         // val quantityIndex = CashSchemaV1.PersistentCash::value.equal(amount)
-        val creatorIndex = CashSchemaV1.PersistentCash::creator.equal(creator.owningKey.toString())
+        val creatorIndex = CashSchemaV1.PersistentCash::creator.equal(creator)
 
         val customCriteria1 = QueryCriteria.VaultCustomQueryCriteria(currencyIndex)
         //val customCriteria2 = QueryCriteria.VaultCustomQueryCriteria(quantityIndex)

@@ -34,7 +34,7 @@ object CashSchemaV1 : MappedSchema(
             var linearId: UUID
     ) : PersistentState() {
         // Default constructor required by hibernate.
-        constructor(): this("", "", 0L, CURRENCY,  UUID.randomUUID())
-        constructor(creator: String, owner: String, value: Long): this(creator, owner, value, CURRENCY,  UUID.randomUUID())
+        constructor() : this("", "", 0L, CURRENCY, UUID.randomUUID())
+        constructor(creator: String, owner: String, value: Long) : this(creator, owner, value, CURRENCY, UUID.randomUUID())
     }
 }

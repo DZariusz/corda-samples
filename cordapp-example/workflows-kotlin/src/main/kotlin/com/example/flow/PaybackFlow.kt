@@ -90,7 +90,7 @@ object PaybackFlow {
             // I assume for this exercise, that all states have same notary
             val notary = cashStatesAndRefs.first().state.notary
 
-            val paybackCashOutput = CashState(iouState.value.toLong(), bank, iouState.lender)
+            val paybackCashOutput = CashState(bank, iouState.lender, iouState.value.toLong())
 
             // build tx that will consume previous output
             val txBuilder = TransactionBuilder(notary)
@@ -102,7 +102,7 @@ object PaybackFlow {
             cashStatesAndRefs.forEach { txBuilder.addInputState(it) }
 
             if (sum > iouState.value) {
-                val changeCashOutput = CashState(sum - iouState.value, bank, iouState.borrower)
+                val changeCashOutput = CashState(bank, iouState.borrower, sum - iouState.value)
                 txBuilder.addOutputState(changeCashOutput)
             }
 

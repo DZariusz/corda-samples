@@ -22,7 +22,7 @@ object CreateMoneyFlow {
 
             cashOwners.forEach { owner, cashValues ->
                 cashValues.forEach {
-                    val cashState = CashState(it, creator = ourIdentity, owner = owner)
+                    val cashState = CashState(creator = ourIdentity, owner = owner, value = it)
                     txBuilder.addOutputState(cashState, CashContract.ID)
                 }
             }

@@ -25,7 +25,7 @@ import net.corda.core.schemas.QueryableState
 data class IOUState(val value: Int,
                     val lender: Party,
                     val borrower: Party,
-                    override val linearId: UniqueIdentifier = UniqueIdentifier()):
+                    override val linearId: UniqueIdentifier = UniqueIdentifier()) :
         LinearState, QueryableState {
     /** The public keys of the involved parties. */
     override val participants: List<AbstractParty> get() = listOf(lender, borrower)

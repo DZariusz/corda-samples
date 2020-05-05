@@ -15,7 +15,6 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CreateMoneyFlowTests {
@@ -100,11 +99,11 @@ class CreateMoneyFlowTests {
             assert(recordedTx.tx.inputs.isEmpty()) { "expect no inputs" }
 
             val txOutputs = recordedTx.tx.outputs
-            assert(txOutputs.size == 3) { "expect one output "}
+            assert(txOutputs.size == 3) { "expect one output " }
 
             val owner2cash = hashMapOf(
-                owner2.info.singleIdentity() to mutableSetOf(1L, 2L),
-                owner1.info.singleIdentity() to mutableSetOf(cashValue)
+                    owner2.info.singleIdentity() to mutableSetOf(1L, 2L),
+                    owner1.info.singleIdentity() to mutableSetOf(cashValue)
             )
 
             recordedTx.tx.outputsOfType<CashState>().forEach {

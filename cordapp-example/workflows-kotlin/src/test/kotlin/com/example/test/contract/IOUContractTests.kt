@@ -163,7 +163,7 @@ class IOUContractTests {
                 command(lender.publicKey, IOUContract.Commands.Destroy())
                 input(IOUContract.ID, IOUState(iouValue, lender.party, borrower.party))
 
-                command(lender.publicKey,  DummyContract.Commands.Create())
+                command(lender.publicKey, DummyContract.Commands.Create())
                 input(DummyContract.PROGRAM_ID, DummyState())
 
                 verifies()

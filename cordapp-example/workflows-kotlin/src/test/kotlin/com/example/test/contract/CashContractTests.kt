@@ -6,7 +6,6 @@ import net.corda.core.identity.CordaX500Name
 import net.corda.testing.core.TestIdentity
 import net.corda.testing.node.MockServices
 import net.corda.testing.node.ledger
-import org.junit.Ignore
 import org.junit.Test
 
 class CashContractTests {
@@ -20,7 +19,7 @@ class CashContractTests {
     fun `transaction must include Create command`() {
         ledgerServices.ledger {
             transaction {
-                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                output(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 fails()
                 command(bank.publicKey, CashContract.Commands.Create())
                 verifies()
@@ -32,10 +31,10 @@ class CashContractTests {
     fun `Create - There should be no input`() {
         ledgerServices.ledger {
             transaction {
-                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                output(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 command(bank.publicKey, CashContract.Commands.Create())
                 verifies()
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 `fails with`("There should be no input.")
             }
         }
@@ -48,11 +47,11 @@ class CashContractTests {
                 command(bank.publicKey, CashContract.Commands.Create())
 
                 tweak {
-                    output(CashContract.ID, CashState(-1L, bank.party, owner.party))
+                    output(CashContract.ID, CashState(bank.party, owner.party, -1L))
                     `fails with`("Cash value must be positive")
                 }
 
-                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                output(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 verifies()
             }
         }
@@ -62,7 +61,7 @@ class CashContractTests {
     fun `Create - Expect valir signature`() {
         ledgerServices.ledger {
             transaction {
-                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                output(CashContract.ID, CashState(bank.party, owner.party, iouValue))
 
                 tweak {
                     command(listOf(bank.publicKey, bank.publicKey), CashContract.Commands.Create())
@@ -84,8 +83,8 @@ class CashContractTests {
     fun `transaction must include Move command`() {
         ledgerServices.ledger {
             transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
+                output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
                 fails()
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
                 verifies()
@@ -98,16 +97,16 @@ class CashContractTests {
         ledgerServices.ledger {
             transaction {
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
                 `fails with`("There should be at least one input.")
 
                 tweak {
-                    input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                    input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                     verifies()
                 }
 
-                input(CashContract.ID, CashState(iouValue - 1, bank.party, owner.party))
-                input(CashContract.ID, CashState(1, bank.party, owner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue - 1))
+                input(CashContract.ID, CashState(bank.party, owner.party, 1))
                 verifies()
             }
         }
@@ -118,11 +117,11 @@ class CashContractTests {
         ledgerServices.ledger {
             transaction {
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
+                output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
 
                 tweak {
-                    input(CashContract.ID, CashState(Long.MAX_VALUE, bank.party, owner.party))
+                    input(CashContract.ID, CashState(bank.party, owner.party, Long.MAX_VALUE))
                     fails()
                 }
 
@@ -136,17 +135,17 @@ class CashContractTests {
         ledgerServices.ledger {
             transaction {
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 `fails with`("There should be at least one output.")
 
                 tweak {
-                    output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                    output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
                     verifies()
                 }
 
                 tweak {
-                    output(CashContract.ID, CashState(1, bank.party, newOwner.party))
-                    output(CashContract.ID, CashState(iouValue - 1, bank.party, newOwner.party))
+                    output(CashContract.ID, CashState(bank.party, newOwner.party, 1))
+                    output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue - 1))
                     verifies()
                 }
 
@@ -159,14 +158,14 @@ class CashContractTests {
         ledgerServices.ledger {
             transaction {
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
 
                 tweak {
-                    output(CashContract.ID, CashState(iouValue + 1, bank.party, owner.party))
+                    output(CashContract.ID, CashState(bank.party, owner.party, iouValue + 1))
                     `fails with`("in/out value must match")
                 }
 
-                output(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                output(CashContract.ID, CashState(bank.party, owner.party, iouValue))
                 verifies()
             }
         }
@@ -176,8 +175,8 @@ class CashContractTests {
     fun `Move - Previous owner must sign`() {
         ledgerServices.ledger {
             transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
+                output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
 
                 tweak {
                     command(listOf(newOwner.publicKey, bank.publicKey), CashContract.Commands.Move())
@@ -194,16 +193,16 @@ class CashContractTests {
     fun `Move - Creator stays intact`() {
         ledgerServices.ledger {
             transaction {
-                input(CashContract.ID, CashState(iouValue, bank.party, owner.party))
+                input(CashContract.ID, CashState(bank.party, owner.party, iouValue))
 
                 tweak {
                     command(listOf(owner.publicKey, newOwner.publicKey), CashContract.Commands.Move())
-                    output(CashContract.ID, CashState(iouValue, owner.party, newOwner.party))
+                    output(CashContract.ID, CashState(owner.party, newOwner.party, iouValue))
                     `fails with`("Creator stays intact.")
                 }
 
                 command(listOf(owner.publicKey, bank.publicKey), CashContract.Commands.Move())
-                output(CashContract.ID, CashState(iouValue, bank.party, newOwner.party))
+                output(CashContract.ID, CashState(bank.party, newOwner.party, iouValue))
                 verifies()
             }
         }

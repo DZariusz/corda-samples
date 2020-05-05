@@ -18,7 +18,7 @@ data class CashState(val value: Long, val creator: AbstractParty, override val o
         return when (schema) {
             is CashSchemaV1 -> CashSchemaV1.PersistentCash(
                     this.creator.owningKey.toString(),
-                    this.owner.nameOrNull().toString(),
+                    this.owner.owningKey.toString(),
                     this.value
             )
             else -> throw IllegalArgumentException("Unrecognised schema $schema")
